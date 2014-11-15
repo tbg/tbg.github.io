@@ -94,6 +94,17 @@ deployment:
       - docker push cockroachdb/cockroach
 ```
 
+## You can't delete images
+Just something to think about. It's tempting to create containers that have predefined names, and sometimes you'll want to delete and recreate them in your tests. Doesn't work here.
+[CircleCI](http://circleci.com)'s support told me that
+
+> deleting btrfs snapshots requires additional capabilities that the
+> pseudo-root user inside a container doesn't have. Generally docker rm isn't
+> necessary. We completely destroy the entire container and everything associated with it at the end of a build anyway.
+
+
+You can work around this usually, but if you write more complex acceptance tests, just make sure that you never need to remove a container in the process.
+
 ## The full circle.yml & conclusion
 
 * [CircleCI](http://circleci.com) is great and the folks over there are
