@@ -4,21 +4,23 @@ redcarpet:
   extensions: ["tables"]
 
 highlighter:         pygments
+excerpt_separator:   "<!-- jump -->"
 
 # Permalinks
 permalink:        pretty
 
 # Setup
-title:            Tobias Schottdorf
+title:            Tobias Schottdorf, PhD
 tagline:          'Stuff I Ran Into'
-url:              http://tschottdorf.github.io/blog
-shorturl:         tschottdorf.github.io/blog
+url:              http://tschottdorf.github.io/
+shorturl:         tschottdorf.github.io
 
 author:
   name:           'Tobias Schottdorf'
   url:            http://tschottdorf.github.io/
 
 paginate:         1
+
 
 # Custom vars
 version:          1.0.0
