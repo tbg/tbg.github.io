@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "Talk on CockroachDB"
+title: "CockroachDB at the NoSQL User Group Cologne"
 comments: true
 permalink: "cockroachdb-talk-nosql-user-group-cologne"
 ---
