@@ -89,8 +89,8 @@ deployment:
     commands:
       - ./build/build-docker-deploy.sh:
          timeout: 600
-      - sed "s/<EMAIL>/$DOCKER_EMAIL/;s/<AUTH>/$DOCKER_AUTH/" \
-         < .dockercfg.template > ~/.dockercfg
+      - sed "s/<EMAIL>/$DOCKER_EMAIL/;s/<AUTH>/$DOCKER_AUTH/" > \
+        "resources/deploy_templates/.dockercfg.template" > ~/.dockercfg
       - docker push cockroachdb/cockroach
 ```
 
@@ -109,7 +109,7 @@ You can work around this usually, but if you write more complex acceptance tests
 
 * [CircleCI](http://circleci.com) is great and the folks over there are
   helpful. Also: Free for Open Source projects.
-* [Docker](http://docker.io) support works well and opens the door to a lot
+* [Docker](http://docker.io) support works well and opens the door to
   testing a lot more than you could before.
 * Caching is a bit tricky: Large images cost time to move around the network,
   and they need to be fed in and out of Docker manually - also cost-intensive.
@@ -156,9 +156,9 @@ deployment:
     branch: master
     commands:
       - ./build/build-docker-deploy.sh:
-         timeout: 600
-      - sed "s/<EMAIL>/$DOCKER_EMAIL/;s/<AUTH>/$DOCKER_AUTH/" \
-         < .dockercfg.template > ~/.dockercfg
+          timeout: 600
+      - sed "s/<EMAIL>/$DOCKER_EMAIL/;s/<AUTH>/$DOCKER_AUTH/" < \
+        "resources/deploy_templates/.dockercfg.template" > ~/.dockercfg
       - docker push cockroachdb/cockroach
 ```
 
