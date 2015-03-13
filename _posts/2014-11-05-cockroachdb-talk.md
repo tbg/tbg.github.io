@@ -23,4 +23,4 @@ If you're curious, check out
 [CockroachDB](https://github.com/cockroachdb/cockroach) and watch the talk
 below (starts at about 1m15s in):
 
-<iframe width="560" height="315" src="//www.youtube.com/embed/jI3LiKhqN0E?t=1m20s" frameborder="0" allowfullscreen> </iframe>
+<iframe width="560" height="315" src="https://www.youtube.com/embed/jI3LiKhqN0E?t=1m20s" frameborder="0" allowfullscreen> </iframe>
