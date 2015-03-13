@@ -1,11 +1,11 @@
 ---
 layout: post
-title: "Docker at CockroachDB: the power of development and deployment containers"
+title: "Docker at Cockroach: the power of development and deployment containers"
 comments: true
 permalink: "docker-cockroach-development-deployment-containers"
 ---
 
-*At [CockroachDB](https://github.com/cockroachdb/cockroach), we are building a scalable, distributed database and use [Docker](http://docker.io) to automate and streamline our builds, tests and deploy processes.
+*At [Cockroach](https://github.com/cockroachdb/cockroach), we are building a scalable, distributed database and use [Docker](http://docker.io) to automate and streamline our builds, tests and deploy processes.
 When you read about Docker, you normally run across simple Dockerfiles. In this post, I'll introduce some of the more advanced constructs we are using (nothing fancy - but useful), and how powerful they are in making our lives easier. In particular, you'll learn how developers can work on [Cockroach](https://github.com/cockroachdb/cockroach) without installing anything, and how we reliably build the same deployment-ready minimal containers on any system.*
 
 Concisely put, Cockroach (at the time of writing) comes with three images:
@@ -15,13 +15,13 @@ Concisely put, Cockroach (at the time of writing) comes with three images:
 * `cockroachdb/cockroach-dev`: The development image.
   This is a simple image based on the cockroach-devbase, with only a few lines of Dockerfile. 
 * `cockroachdb/cockroach`: The deployment image, i.e. the one you use if you're
-  not actually developing, but rather running a CockroachDB cluster.
+  not actually developing, but rather running a Cockroach cluster.
   This one is based on [BusyBox](http://www.busybox.net/) and comes with a more complicated build process:
 A development container builds statically linked binaries and tests. The main binary is put into a minimal container, and the tests can be mounted into that container to check the functionality.
 
 ## The Development Image `cockroachdb-dev`
 
-In short, the [CockroachDB code base](https://github.com/cockroachdb/cockroach) is [Go](http://golang.org/) plus some C++. Without Docker, if you were to clone our repo and tried to hack on it, you'd have to do the following:
+In short, the [Cockroach code base](https://github.com/cockroachdb/cockroach) is [Go](http://golang.org/) plus some C++. Without Docker, if you were to clone our repo and tried to hack on it, you'd have to do the following:
 
 ```bash
 $ git clone git@github.com:/cockroachdb/cockroach
@@ -44,7 +44,7 @@ and that is the best-case scenario in which you have the appropriate new version
 
 Also, we would have to script variants of these processes for our continuous integration based on the test environment that they provide.
 
-That can all be done and in fact I personally hack on CockroachDB outside of Docker, but as an outsider wanting to contribute, I don't want them to deal with all of that.
+That can all be done and in fact I personally hack on Cockroach outside of Docker, but as an outsider wanting to contribute, I don't want them to deal with all of that.
 
 Instead, they could simply do a quick `docker build -t "cockroachdb/cockroach-dev" .` from our main repo. Let's try this with a fresh clone:
 
@@ -203,4 +203,4 @@ With this build process, the actual deployment container is relatively small. Th
 
 Compared to the >1GB `cockroachdb/cockroach-dev` image, this is very convenient.
 
-You can find the whole shebang in [CockroachDB@7e452](https://github.com/cockroachdb/cockroach/tree/7e452c2a8a9537e4ba5906ccc8a54c50b06885fb) - it's quite likely that over time, things will change quite a bit still.
+You can find the whole shebang in [Cockroach@7e452](https://github.com/cockroachdb/cockroach/tree/7e452c2a8a9537e4ba5906ccc8a54c50b06885fb) - it's quite likely that over time, things will change quite a bit still.

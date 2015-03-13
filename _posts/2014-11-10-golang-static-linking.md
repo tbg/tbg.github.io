@@ -1,11 +1,11 @@
 ---
 layout: post
-title: "Golang: Statically linked binary and tests for CockroachDB"
+title: "Golang: Statically linked binary and tests for Cockroach"
 comments: true
 permalink: "linking-golang-go-statically-cgo-testing"
 ---
 
-*At [CockroachDB](https://github.com/cockroachdb/cockroach), we write a lot of tests, which is great and absolutely necessary: Building a CP ([consistent and partition-tolerant](http://en.wikipedia.org/wiki/CAP_theorem)) distributed system (like [CockroachDB](https://github.com/cockroachdb/cockroach)) without getting everything exactly right just gives you another system without any guarantees. Below I'll describe what I did to build both our main binary and our tests (!) statically, and how far I got.*
+*At [Cockroach](https://github.com/cockroachdb/cockroach), we write a lot of tests, which is great and absolutely necessary: Building a CP ([consistent and partition-tolerant](http://en.wikipedia.org/wiki/CAP_theorem)) distributed system (like [Cockroach](https://github.com/cockroachdb/cockroach)) without getting everything exactly right just gives you another system without any guarantees. Below I'll describe what I did to build both our main binary and our tests (!) statically, and how far I got.*
 
 **TL;DR: `-a` is surprisingly useful.**
 
@@ -18,7 +18,7 @@ Often, you hear complaints about Go binary sizes along with the explanation that
 
 And once you're reaching out to the C/C++ world via CGO, `go build` will definitely use the external linker, and you're very likely ending up with a **dynamically linked** binary.
 
-At [CockroachDB](https://github.com/cockroachdb/cockroach), we certainly have such dependencies: Our own C++ libs used for low-level stuff, protocol buffers and [RocksDB](http://rocksdb.org/), a more performant fork of [Google's LevelDB](http://en.wikipedia.org/wiki/LevelDB). Those dependencies offer static libraries, of course, so when I started this I was reasonably optimistic.
+At [Cockroach](https://github.com/cockroachdb/cockroach), we certainly have such dependencies: Our own C++ libs used for low-level stuff, protocol buffers and [RocksDB](http://rocksdb.org/), a more performant fork of [Google's LevelDB](http://en.wikipedia.org/wiki/LevelDB). Those dependencies offer static libraries, of course, so when I started this I was reasonably optimistic.
 
 ### What's being linked?
 Let's start with the build process that we use when developing - we don't care about the way it's linked, and consequently we (more or less) run

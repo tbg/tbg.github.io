@@ -5,7 +5,7 @@ comments: true
 permalink: "cockroach-docker-circleci-continuous-integration"
 ---
 
-*I recently spent a weekend switching [CockroachDB](https://github.com/cockroachdb/cockroach) to [CircleCI](http://circleci.com) with [Docker](http://docker.io) for our continuous integration needs. Previously, we had a standard build script on [Travis CI](https://travis-ci.org/), but with a variety of dependencies that needed to be compiled and vendored in, the average build took about ten minutes to get to the unit tests.
+*I recently spent a weekend switching [Cockroach](https://github.com/cockroachdb/cockroach) to [CircleCI](http://circleci.com) with [Docker](http://docker.io) for our continuous integration needs. Previously, we had a standard build script on [Travis CI](https://travis-ci.org/), but with a variety of dependencies that needed to be compiled and vendored in, the average build took about ten minutes to get to the unit tests.
 Now we clock in at about half that but are able to actually orchestrate a [Cockroach](https://github.com/cockroachdb/cockroach) cluster and run acceptance tests. But there are some small kinks that are useful to know about.*
 
 Cockroach (at the time of writing) comes with three images:
@@ -162,4 +162,4 @@ deployment:
       - docker push cockroachdb/cockroach
 ```
 
-You can find the setup as described above in [CockroachDB@7e452](https://github.com/cockroachdb/cockroach/tree/7e452c2a8a9537e4ba5906ccc8a54c50b06885fb).
+You can find the setup as described above in [Cockroach@7e452](https://github.com/cockroachdb/cockroach/tree/7e452c2a8a9537e4ba5906ccc8a54c50b06885fb).
