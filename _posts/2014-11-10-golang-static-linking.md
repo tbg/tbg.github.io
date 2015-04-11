@@ -7,6 +7,9 @@ permalink: "linking-golang-go-statically-cgo-testing"
 
 *At [Cockroach](https://github.com/cockroachdb/cockroach), we write a lot of tests, which is great and absolutely necessary: Building a CP ([consistent and partition-tolerant](http://en.wikipedia.org/wiki/CAP_theorem)) distributed system (like [Cockroach](https://github.com/cockroachdb/cockroach)) without getting everything exactly right just gives you another system without any guarantees. Below I'll describe what I did to build both our main binary and our tests (!) statically, and how far I got.*
 
+  **Edit (04/11/2015)**: Ever since Go 1.4 came around, this article has been slightly outdated. A change in 1.4 altered the behaviour of the `-a` flag such that it would not rebuild the standard library. Consequently, the `netgo` tag did not have the desired effect any more. There are various discussions about this to be found online, and luckily there's an easy fix: just add the `-installsuffix netgo` parameter to your go build flags. That causes the packages to be built in `${GOROOT}/pkg/<arch>_netgo` instead, causing the `-a` flag to behave as it should.
+
+
 **TL;DR: `-a` is surprisingly useful.**
 
 Our codebase is mostly [Go](http://golang.org/), but with a number of references to C++. The result of a successful build is a single binary, and we want users to be able to deploy this binary right away without having to setup a build toolchain or making sure that they have the right libs we link against.
