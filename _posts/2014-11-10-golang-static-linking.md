@@ -160,7 +160,7 @@ Fortunately, those packages that actually **need** CGO end up statically linked,
 for p in github.com/cockroachdb/cockroach/gossip; do \
   NAME=$(basename "$p"); \
   OUT="$NAME.test"; \
-  DIR=$(go list -f {{.Dir}} ./...$NAME); \
+  DIR=$(go list -f \{\{.Dir\}\} ./...$NAME); \
   go test  -a -tags netgo -ldflags '-extldflags "-lm -lstdc++ -static"' -c "$p" -logtostderr -timeout 10s || break; \
   if [ -f "$OUT" ]; then \
     if [ ! -z "1" ] && ldd "$OUT" > /dev/null; then \
