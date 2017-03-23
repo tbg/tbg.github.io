@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "Gryadka is not not Paxos, so it's probably wrong"
+title: "Gryadka is not Paxos, so it's probably wrong"
 comments: true
 permalink: "if-its-not-paxos-its-probably-wrong-gryadka"
 ---
