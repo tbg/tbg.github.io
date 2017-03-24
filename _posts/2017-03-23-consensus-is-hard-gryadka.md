@@ -285,7 +285,7 @@ at all but simply saved a few roundtrips through multiplexing the initial
 [paxossimple]: https://www.idi.ntnu.no/emner/tdt02/PaxosMadeSimple.pdf
 [paxossimplearticle]: https://www.microsoft.com/en-us/research/publication/paxos-made-simple/
 [paxos-obscure]: http://lamport.azurewebsites.net/pubs/lamport-paxos.pdf
-[abd]: http://dl.acm.org/citation.cfm?id=200869
+[abd]: http://dl.acm.org/ft_gateway.cfm?id=2500874&type=pdf&path=%2F2510000%2F2500874%2Fsupp%2Fp88-musial-supp.pdf&supp=1&dwn=1
 [herlihy]: https://cs.brown.edu/~mph/Herlihy91/p124-herlihy.pdf
 [yalecs]: http://www.cs.yale.edu/homes/aspnes/classes/465/notes.pdf
 [mit]: http://courses.csail.mit.edu/6.852/08/lectures/Lecture19.pdf
