@@ -276,7 +276,7 @@ at all but simply saved a few roundtrips through multiplexing the initial
 
 [lamport]: http://lamport.azurewebsites.net
 [rystsov-cas]: http://rystsov.info/2015/09/16/how-paxos-works.html
-[rystsov-consensus]: rystsov.info/2017/02/15/simple-consensus.html
+[rystsov-consensus]: http://rystsov.info/2017/02/15/simple-consensus.html
 [rystsov-tw]: https://twitter.com/rystsov
 [mp]: https://en.wikipedia.org/wiki/Paxos_(computer_science)#Multi-Paxos
 [raft]: https://raft.github.io/
@@ -285,7 +285,7 @@ at all but simply saved a few roundtrips through multiplexing the initial
 [paxossimple]: https://www.idi.ntnu.no/emner/tdt02/PaxosMadeSimple.pdf
 [paxossimplearticle]: https://www.microsoft.com/en-us/research/publication/paxos-made-simple/
 [paxos-obscure]: http://lamport.azurewebsites.net/pubs/lamport-paxos.pdf
-[abd]: http://delivery.acm.org/10.1145/2510000/2500874/supp/p88-musial-supp.pdf?ip=180.249.89.127&id=2500874&acc=OPEN&key=4D4702B0C3E38B35%2E4D4702B0C3E38B35%2E4D4702B0C3E38B35%2E6D218144511F3437&CFID=741645699&CFTOKEN=59728545&__acm__=1490152554_796acc1dd683ef6bae8b8ba64e4a15a0
+[abd]: http://dl.acm.org/citation.cfm?id=200869
 [herlihy]: https://cs.brown.edu/~mph/Herlihy91/p124-herlihy.pdf
 [yalecs]: http://www.cs.yale.edu/homes/aspnes/classes/465/notes.pdf
 [mit]: http://courses.csail.mit.edu/6.852/08/lectures/Lecture19.pdf
