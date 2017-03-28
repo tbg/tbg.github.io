@@ -16,6 +16,10 @@ consensus is hard.*
 
 ---
 
+**Update (3/28/17): an earlier version of the article simplified the
+counter-example too much, and left some readers thinking that it wasn't one.
+The exposition has been updated; the [repository](https://github.com/tschottdorf/tschottdorf.github.io/) retains the original.**
+
 In a [recent post][rystsov-consensus], [@rystsov][rystsov-tw] explored
 alternatives to the distributed consensus seeker's standard choices,
 [Multi-Paxos][mp] or [Raft][raft], and presented his proof-of-concept
@@ -93,7 +97,8 @@ grounded in any value that was ever visible.
 To put it bluntly, you're at risk of using the result of a dirty read as the
 basis of a committable mutation.
 
-Now let's see this in (theoretical) action.
+Now let's see this in (theoretical) action and defer a [discussion of the
+proposal numbers involved](#proposal-numbers) to the end of this section.
 
 Take this perfectly reasonable history on three acceptors `A`, `B`, and `C,`
 using a single proposer. We'll keep track of the state in the form
@@ -105,60 +110,76 @@ A: (value=x  ballot=1  promised=5)
 ```
 
 We start from the initial state below. Our proposer will want to run
-a compare-and-swap from `nil` to `foo`, denoted `CAS(nil->foo)`.
+a compare-and-swap from `asd` to `foo`, denoted `CAS(asd->foo)`.
 
 ```
-A: (value=nil  ballot=0  promised=0)
-B: (value=nil  ballot=0  promised=0)
-C: (value=nil  ballot=0  promised=0)
+A: (value=asd  ballot=0  promised=0)
+B: (value=asd  ballot=0  promised=0)
+C: (value=asd  ballot=0  promised=0)
 ```
 
 Getting ready, our proposer runs a prepare phase at ballot 1. It learns the
-value `nil`.
+value `asd`.
 
 ```
-A: (value=nil  ballot=0  promised=1)
-B: (value=nil  ballot=0  promised=1)
-C: (value=nil  ballot=0  promised=1)
+A: (value=asd  ballot=0  promised=1)
+B: (value=asd  ballot=0  promised=1)
+C: (value=asd  ballot=0  promised=1)
 ```
 
-`nil` matches the expected value of the intended command `CAS(nil->foo)` at
+`asd` matches the expected value of the intended command `CAS(asd->foo)` at
 ballot 1, so it will try to get the transformed value `foo` accepted. The
 proposer gets `A` to accept the value `foo`, but then gives up (asynchronous
 network!), leaving the system in the state
 
 ```
 A: (value=foo  ballot=1  promised=1)
-B: (value=nil  ballot=0  promised=1)
-C: (value=nil  ballot=0  promised=1)
+B: (value=asd  ballot=0  promised=1)
+C: (value=asd  ballot=0  promised=1)
 ```
-If you queried the register now via the majority `(B, C)` (by a round of
-`PREPARE` and `ACCEPT` with the highest returned accepted value, i.e. vanilla
-Paxos), then the result would still be `nil`; the register thus certifiably
-still stores the value `nil`.
 
-Next, our proposer prepares for a `CAS(foo->bar)` at a higher ballot, say 2:
+Now let's query the register from different (throw-away, i.e. only used this
+one time) proposer for ballot number 2. Networks being asynchronous, we don't
+manage to talk to `A`, but the majority `(B, C)` works.
+
+A read is vanilla Paxos, i.e. a round of `PREPARE` to get the highest accepted
+value known to our majority, and then an `ACCEPT` phase with that value to the
+majority.
+
+Of course, the result will be `asd`; the register thus certifiably still stores
+the value `asd` and we have the state
 
 ```
-A: (value=foo  ballot=1  promised=2)
-B: (value=nil  ballot=0  promised=2)
-C: (value=nil  ballot=0  promised=2)
+A: (value=foo  ballot=1  promised=1)
+B: (value=asd  ballot=0  promised=2)
+C: (value=asd  ballot=0  promised=2)
+```
+
+Next, our proposer prepares for a `CAS(foo->bar)` at a higher ballot, say (for
+simplicity) `3`.
+
+After `PREPARE`, we have
+
+```
+A: (value=foo  ballot=1  promised=3)
+B: (value=asd  ballot=0  promised=3)
+C: (value=asd  ballot=0  promised=3)
 ```
 The highest returned accepted value will be `foo` from `A`, and this matches
 the expectation of the `CAS`. Uh oh, shady! `foo` isn't actually committed, and
 consequently the value the proposer is going to get committed is not grounded
-in the "real" value of the register, `nil`.
+in the "real" value of the register, `asd`.
 
 But misfortune runs its course, and `B` gets everyone to accept the value
 `bar`, wiping out the "dirty" value `foo` in the process:
 
 ```
-A: (value=bar  ballot=2  promised=2)
-B: (value=bar  ballot=2  promised=2)
-C: (value=bar  ballot=2  promised=2)
+A: (value=bar  ballot=3  promised=3)
+B: (value=bar  ballot=3  promised=3)
+C: (value=bar  ballot=3  promised=3)
 ```
 
-You have successfully managed to read the value `nil` and then compare-and-swap
+You have successfully managed to read the value `asd` and then compare-and-swap
 from `foo` to `bar`. Oops!
 
 You can see that the problem immediately goes away when you don't allow
@@ -181,12 +202,53 @@ def ident(maybe_value):
 Doing so collapses [gryadka][gryadka]'s algorithm back into single-decree
 Paxos, and the resulting data structure is the associated write-once register.
 
-If you follow along with the actual source code of [gryadka][gryadka] you'll
-notice that the actual code has some extra bells and whistles, like version
-numbers and caching read values. The problem manifests itself most clearly in
-the basic version presented above though, and should convince you that
-something is wrong on a fundamental level, and that a whole universe of
-problems can be cooked up.
+<span id="proposal-numbers"></span>
+Follow the actual source code of [gryadka][gryadka] you'll
+notice that you have to work harder to get a "real" counterexample, and it's
+really not surprising to me that this anomaly wasn't found during testing:
+
+- Reading values is vanilla Paxos and so pretty efficiently wipes out any
+  "partial anomaly" unless you have just the right network partition in place,
+  as we did in the example.
+- Any leadership change (which is usually guaranteed when working with multiple
+  proposers) invalidates all read values and so triggers a lot of reads, again
+  patching things up.
+
+A practical version of this example would have to "prime" the proposals so that
+the ballot numbers work out. Ballot numbers have the form
+
+```(term, proposer_id, counter)```
+
+and are compared lexicographically.
+
+- `term` is learned from responses; when you try to be come the leader, you
+  pick the discovered `term` and increment it. So it's easy to let two
+  proposers end up in the same term.
+- `proposer_id` is fixed per proposer; you get to choose that as well.
+- `counter` increases with any attempt at a proposal (even if they never make
+  it anywhere else); hence this component you basically get to choose however
+  you like.
+
+Priming the ballot numbers is hence doable, if a bit awkward, and you could
+replace the "symbolic" ballot numbers in the example using well-ordered
+`proposer_id`s and making everyone use the same `term` (`count` doesn't matter):
+
+- `1` becomes `(1, 1)` (the failed CAS, now from a distinct proposer)
+- `2` becomes `(1, 2)` (the read of the old value)
+- `3` becomes `(1, 3)` (the "successful" CAS).
+
+There is more to worry about like the version numbers built into gryadka, but
+they actually open up more anomalies if you follow the above scheme, like
+version `n` being able to replace version `n`. All you need is an
+uninterrupted sequence of `CAS`.
+
+And last but not least, you could take a closer look at the leadership
+mechanism: you can likely cook up more havoc using the caching of read values
+(provoking version number problems).
+
+Hopefully it's clear at this point that prepare-modify-accept is fundamentally
+flawed and its shortcomings can be masked and made more unlikely but not
+patched.
 
 ## Theoretical discussion
 
