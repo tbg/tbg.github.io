@@ -8,14 +8,14 @@ excerpt_separator:   "<!-- jump -->"
 permalink:        pretty
 
 # Setup
-title:            Tobias Schottdorf
+title:            Tobias Grieger
 tagline:          'Stuff I Ran Into'
-url:              http://tschottdorf.github.io/
-shorturl:         tschottdorf.github.io
+url:              http://tbg.github.io/
+shorturl:         tbg.github.io
 
 author:
-  name:           'Tobias Schottdorf'
-  url:            http://tschottdorf.github.io/
+  name:           'Tobias Grieger'
+  url:            http://tbg.github.io/
 
 paginate:         1
 
@@ -24,7 +24,7 @@ paginate:         1
 version:          1.0.0
 
 github:
-  repo:           github.com/tschottdorf/tschottdorf.github.io
+  repo:           github.com/tbg/tbg.github.io
 
 # This is the list of pages to include in the header of the website.
 pages_list:
