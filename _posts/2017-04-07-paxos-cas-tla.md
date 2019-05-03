@@ -389,8 +389,7 @@ Open the model using the [TLA toolbox][toolbox] (`File -> Open Spec -> Add New
 Spec`), and note how we declared `Acceptors` as a set of three "model values";
 a model value is a value that's completely opaque to the model checker, and not
 equal to any other value. We also have `Values = {0, 1, 2, 3}`, and `Mutator(b,
-v)` is set to `(1
-+ b*v) % 4` (an arbitrary choice).
+v)` is set to `(1 + b*v) % 4` (an arbitrary choice).
 
 Furthermore, there is a "Definition Override" that sets `Nat` to `0..3` and we
 have added `DesiredProperties` under `Invariants` so that it will be checked
