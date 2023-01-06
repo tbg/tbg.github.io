@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Docker at Cockroach: the power of development and deployment containers &middot; Tobias Grieger
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="public/css/poole.css">
+  <link rel="stylesheet" href="public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://tbg.github.io/public/apple-touch-icon-144-precomposed.png">
+                                 <link rel="shortcut icon" href="public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="atom.xml">
+</head>
+
+  <script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+     (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+       m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+         })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-56656281-1', 'auto');
+    ga('send', 'pageview');
+
+</script>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+        <h3 class="masthead-title">
+          <a href="index.html" title="Home">Tobias Grieger</a>
+
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="about/index.html">About</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="archive/index.html">Archive</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="atom.xml">Feed</a></small>
+          
+
+        </h3>
+      </div>
+
+      <div class="post">
+  <h1 class="post-title">Docker at Cockroach: the power of development and deployment containers</h1>
+  <span class="post-date">15 Nov 2014</span>
+  <p><em>At <a href="https://github.com/cockroachdb/cockroach">Cockroach</a>, we are building a scalable, distributed database and use <a href="http://docker.io">Docker</a> to automate and streamline our builds, tests and deploy processes.
+When you read about Docker, you normally run across simple Dockerfiles. In this post, I’ll introduce some of the more advanced constructs we are using (nothing fancy - but useful), and how powerful they are in making our lives easier. In particular, you’ll learn how developers can work on <a href="https://github.com/cockroachdb/cockroach">Cockroach</a> without installing anything, and how we reliably build the same deployment-ready minimal containers on any system.</em></p>
+
+<p>Concisely put, Cockroach (at the time of writing) comes with three images:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">cockroachdb/cockroach-devbase</code>: A development base image.
+It does not contain any of the actual Cockroach code, but the build toolchain and vendored-in versions of all the dependencies. Normally, if you work on the code, you don’t need to change this image. We factored it out because this image is a good point to base your build on and can be cached nicely in continuous integration (we use the awesome <a href="http://circleci.com">CircleCI</a>).</li>
+  <li><code class="highlighter-rouge">cockroachdb/cockroach-dev</code>: The development image.
+This is a simple image based on the cockroach-devbase, with only a few lines of Dockerfile.</li>
+  <li><code class="highlighter-rouge">cockroachdb/cockroach</code>: The deployment image, i.e. the one you use if you’re
+not actually developing, but rather running a Cockroach cluster.
+This one is based on <a href="http://www.busybox.net/">BusyBox</a> and comes with a more complicated build process:
+A development container builds statically linked binaries and tests. The main binary is put into a minimal container, and the tests can be mounted into that container to check the functionality.</li>
+</ul>
+
+<h2 id="the-development-image-cockroachdb-dev">The Development Image <code class="highlighter-rouge">cockroachdb-dev</code></h2>
+
+<p>In short, the <a href="https://github.com/cockroachdb/cockroach">Cockroach code base</a> is <a href="http://golang.org/">Go</a> plus some C++. Without Docker, if you were to clone our repo and tried to hack on it, you’d have to do the following:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>git clone git@github.com:/cockroachdb/cockroach
+<span class="c"># ...</span>
+<span class="nv">$ </span><span class="nb">cd </span>cockroach<span class="p">;</span> ./bootstrap.sh
+<span class="c"># ...</span>
+<span class="c"># pages and pages of libraries being built</span>
+<span class="c"># ...</span>
+<span class="c"># 10 minutes later:</span>
+<span class="nv">$ </span>make build
+<span class="c"># ...</span>
+<span class="nv">$ </span>./cockroach
+Usage:
+
+        cockroach <span class="nb">command</span> <span class="o">[</span>arguments]
+<span class="c"># ...</span>
+</code></pre></div></div>
+
+<p>and that is the best-case scenario in which you have the appropriate new version of C++ installed to build <a href="http://rocksdb.org">RocksDB</a> and the various other dependencies, such as <code class="highlighter-rouge">snappy</code>, <code class="highlighter-rouge">protobuf</code>, <code class="highlighter-rouge">bz2</code>, … didn’t end up having any build hiccups.</p>
+
+<p>Also, we would have to script variants of these processes for our continuous integration based on the test environment that they provide.</p>
+
+<p>That can all be done and in fact I personally hack on Cockroach outside of Docker, but as an outsider wanting to contribute, I don’t want them to deal with all of that.</p>
+
+<p>Instead, they could simply do a quick <code class="highlighter-rouge">docker build -t "cockroachdb/cockroach-dev" .</code> from our main repo. Let’s try this with a fresh clone:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>docker build <span class="nt">-t</span> <span class="s2">"cockroachdb/cockroach-dev"</span>
+Sending build context to Docker daemon  58.1 MB
+Sending build context to Docker daemon
+Step 0 : FROM cockroachdb/cockroach-devbase:latest
+Pulling repository cockroachdb/cockroach-devbase
+0407ad0fa9fd: Pulling image <span class="o">(</span>latest<span class="o">)</span> from cockroachdb/cockroach-devbase, endpoint: https://registry-1.d0407ad0fa9fd: Download <span class="nb">complete
+</span>511136ea3c5a: Download <span class="nb">complete</span>
+<span class="c"># [...]</span>
+8d37c4dafcdf: Download <span class="nb">complete
+</span>Status: Downloaded newer image <span class="k">for </span>cockroachdb/cockroach-devbase:latest
+ <span class="nt">---</span><span class="o">&gt;</span> 0407ad0fa9fd
+Step 1 : MAINTAINER Tobias Schottdorf &lt;tobias.schottdorf@gmail.com&gt;
+ <span class="nt">---</span><span class="o">&gt;</span> Running <span class="k">in </span>e6528c82806a
+ <span class="nt">---</span><span class="o">&gt;</span> 768b9e8f0212
+Removing intermediate container e6528c82806a
+Step 2 : ADD <span class="nb">.</span> /cockroach/
+ <span class="nt">---</span><span class="o">&gt;</span> d94b378cfa97
+Removing intermediate container 2a3b51d06418
+<span class="c"># ...</span>
+go build  <span class="nt">-i</span> <span class="nt">-o</span> cockroach
+ <span class="nt">---</span><span class="o">&gt;</span> 2fd9e266b824
+Removing intermediate container 0b156cca7c81
+Step 6 : EXPOSE 8080
+ <span class="nt">---</span><span class="o">&gt;</span> Running <span class="k">in </span>4c99f7e9fa84
+ <span class="nt">---</span><span class="o">&gt;</span> 85d3a50c9f07
+Removing intermediate container 4c99f7e9fa84
+Step 7 : ENTRYPOINT /cockroach/cockroach.sh
+ <span class="nt">---</span><span class="o">&gt;</span> Running <span class="k">in </span>6ccf7d7498df
+ <span class="nt">---</span><span class="o">&gt;</span> 7f811d0fac6f
+Removing intermediate container 6ccf7d7498df
+Step 8 : CMD <span class="nt">--help</span>
+ <span class="nt">---</span><span class="o">&gt;</span> Running <span class="k">in </span>24de6f231385
+ <span class="nt">---</span><span class="o">&gt;</span> 0065234019a6
+Removing intermediate container 24de6f231385
+Successfully built 0065234019a6
+</code></pre></div></div>
+
+<p>After the download of the <code class="highlighter-rouge">cockroachdb/cockroach-devbase</code> image, it took about 20 seconds to build the <code class="highlighter-rouge">cockroachdb/cockroach-dev</code> image. Now, right away, we can run cockroach:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>docker run <span class="s2">"cockroachdb/cockroach-dev"</span> <span class="nt">--help</span>
+Usage:
+
+        cockroach <span class="nb">command</span> <span class="o">[</span>arguments]
+<span class="c"># ...</span>
+</code></pre></div></div>
+
+<p>After perhaps making some local changes to the git repo, another <code class="highlighter-rouge">docker build -t "cockroachdb/cockroach-dev"</code> will update the image, taking virtually as long as it would outside of the virtual environment, and running the tests is as easy as</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>docker run <span class="s2">"cockroachdb/cockroach-dev"</span> <span class="nb">test</span>
+<span class="c"># ...</span>
+go <span class="nb">test</span>  <span class="nt">-run</span> <span class="s2">".*"</span> <span class="s2">"./..."</span> <span class="nt">-logtostderr</span> <span class="nt">-timeout</span> 10s
+ok      github.com/cockroachdb/cockroach/client 0.216s
+<span class="c"># ...</span>
+go <span class="nb">test</span>  <span class="nt">-race</span> <span class="nt">-run</span> <span class="s2">".*"</span> <span class="s2">"./..."</span> <span class="nt">-logtostderr</span> <span class="nt">-timeout</span> 1m
+ok      github.com/cockroachdb/cockroach/client 1.811s
+<span class="c"># ...</span>
+</code></pre></div></div>
+
+<p>We can also run <code class="highlighter-rouge">docker run -t -i "cockroachdb/cockroach-dev" shell</code>, which is a special parameter that drops us into a shell. Since the environment variables have all been changed to point to the vendored libraries, this is a good setting to invoke <code class="highlighter-rouge">go</code> directly without going through <code class="highlighter-rouge">make</code> - something that may be useful to do for different reasons.</p>
+
+<p>That’s good stuff, and a fairly standard use of Docker at this point.</p>
+
+<h2 id="the-base-image-cockroach-devbase">The Base Image <code class="highlighter-rouge">cockroach-devbase</code></h2>
+
+<p>The base image is what the previous image was based on - it’s fairly simple in itself, too. Omitting some less interesting bits, it boils down to the following Dockerfile:</p>
+
+<div class="language-docker highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">FROM</span><span class="s"> golang:latest</span>
+
+<span class="k">MAINTAINER</span><span class="s"> Tobias Schottdorf &lt;tobias.schottdorf@gmail.com&gt;</span>
+
+<span class="c"># Setup the toolchain.</span>
+<span class="k">RUN </span>apt-get update <span class="nt">-y</span> <span class="o">&amp;&amp;</span> apt-get dist-upgrade <span class="nt">-y</span> <span class="o">&amp;&amp;</span> <span class="se">\
+</span> apt-get install <span class="nt">--no-install-recommends</span> <span class="nt">--auto-remove</span> <span class="nt">-y</span> git build-essential pkg-config file <span class="o">&amp;&amp;</span><span class="se">\
+</span> apt-get clean autoclean <span class="o">&amp;&amp;</span> apt-get autoremove <span class="nt">-y</span> <span class="o">&amp;&amp;</span> rm <span class="nt">-rf</span> /tmp/<span class="k">*</span> /var/lib/<span class="o">{</span>apt,dpkg,cache,log<span class="o">}</span>
+
+<span class="k">ENV</span><span class="s"> GOPATH /go</span>
+
+<span class="c"># ...</span>
+
+<span class="k">ADD</span><span class="s"> . /cockroach/build/devbase/</span>
+<span class="k">RUN </span><span class="o">[</span><span class="s2">"./build/devbase/godeps.sh"</span><span class="o">]</span>
+<span class="k">RUN </span><span class="o">[</span><span class="s2">"./build/devbase/vendor.sh"</span><span class="o">]</span>
+
+<span class="k">CMD</span><span class="s"> ["/bin/bash"]</span>
+</code></pre></div></div>
+
+<p>Basing itself of <code class="highlighter-rouge">golang:latest</code>, we end up not having to worry about Go, and then it’s a simple matter of having a working compiler environment (golang:stable is Jessie, so it ships with a recent GCC), pulling the go dependencies and vendoring the required libraries into the tree.</p>
+
+<h2 id="the-deployment-image-cockroach">The Deployment Image <code class="highlighter-rouge">cockroach</code></h2>
+
+<p>This is where things get fun. If you want to build a deploy image, you need a little shell scripting on top of calling Docker.</p>
+
+<p>The deploy image creation script requires a working cockroach/cockroach-dev image, in which a statically linked (linux64) binary is built. Using this binary, a deploy image based on BusyBox is created.</p>
+
+<p>Additionally, we built statically linked tests which are mounted into the appropriate location on the deploy image, running them once. These are not a part of the resulting image but make sure that at least on the machine that creates the deploy image, the tests all pass.</p>
+
+<p>So you get both upsides: A small image, containing only BusyBox and Cockroach’s main binary - but you can run all the tests as well if you supply them to the container from the outside file system. The resulting script looks something like this:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">#!/bin/bash</span>
+<span class="c"># Build a statically linked Cockroach binary</span>
+<span class="c"># Author: Tobias Schottdorf (tobias.schottdorf@gmail.com)</span>
+<span class="nb">set</span> <span class="nt">-ex</span>
+<span class="nb">cd</span> <span class="nt">-P</span> <span class="s2">"</span><span class="k">$(</span>dirname <span class="nv">$0</span><span class="k">)</span><span class="s2">"</span>
+<span class="nv">DIR</span><span class="o">=</span><span class="k">$(</span><span class="nb">pwd</span> <span class="nt">-P</span><span class="k">)</span>
+rm <span class="nt">-rf</span> resources cockroach .out <span class="o">&amp;&amp;</span> mkdir <span class="nt">-p</span> .out
+docker run <span class="s2">"cockroachdb/cockroach-dev"</span> shell <span class="s2">"export STATIC=1 &amp;&amp; </span><span class="se">\</span><span class="s2">
+  cd /cockroach &amp;&amp; (rm -f cockroach &amp;&amp; make clean build testbuild) &gt;/dev/null 2&gt;&amp;1 &amp;&amp; </span><span class="se">\</span><span class="s2">
+  tar -cf - cockroach </span><span class="se">\$</span><span class="s2">(find . -name '*.test' -type f -printf '"</span>%p<span class="s2">" ') resources"</span> <span class="se">\</span>
+<span class="o">&gt;</span> .out/files.tar<span class="p">;</span>
+</code></pre></div></div>
+
+<p>The above builds the static binary and tests inside of the container, collects them
+from the file system, tars them and sends them out to stdout.</p>
+
+<p>Next the script extracts everything, puts the `cockroach’ binary in the right spot and builds the BusyBox container:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">tar</span> <span class="nt">-xvC</span> .out/ <span class="nt">-f</span> .out/files.tar <span class="o">&amp;&amp;</span> rm <span class="nt">-f</span> .out/files.tar
+mv .out/cockroach <span class="nb">.</span>
+cp <span class="nt">-r</span> .out/resources ./resources
+docker build <span class="nt">-t</span> cockroachdb/cockroach <span class="nb">.</span>
+</code></pre></div></div>
+
+<p>Test run: Mounting the .out directory into the container’s /test/, the
+container will run all the tests, making sure that everything looks good.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>docker run <span class="nt">-v</span> <span class="s2">"</span><span class="k">${</span><span class="nv">DIR</span><span class="k">}</span><span class="s2">/.out"</span>:/test/.out cockroachdb/cockroach
+</code></pre></div></div>
+
+<p>The actual Dockerfile that is being built is trivial:</p>
+
+<div class="language-docker highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">FROM</span><span class="s"> busybox:buildroot-2014.02</span>
+
+<span class="k">MAINTAINER</span><span class="s"> Tobias Schottdorf &lt;tobias.schottdorf@gmail.com&gt;</span>
+
+<span class="k">RUN </span>mkdir <span class="nt">-p</span> /test /cockroach
+<span class="k">ADD</span><span class="s"> cockroach /cockroach/</span>
+<span class="k">ADD</span><span class="s"> cockroach.sh /cockroach/</span>
+<span class="k">ADD</span><span class="s"> test.sh /test/</span>
+
+<span class="k">EXPOSE</span><span class="s"> 8080</span>
+<span class="k">ENTRYPOINT</span><span class="s"> ["/cockroach/cockroach.sh"]</span>
+</code></pre></div></div>
+
+<p>With this build process, the actual deployment container is relatively small. The <code class="highlighter-rouge">cockroach</code> binary weighs in at about 44mb at the time of writing; BusyBox adds another meager 5mb.</p>
+
+<p>Compared to the &gt;1GB <code class="highlighter-rouge">cockroachdb/cockroach-dev</code> image, this is very convenient.</p>
+
+<p>You can find the whole shebang in <a href="https://github.com/cockroachdb/cockroach/tree/7e452c2a8a9537e4ba5906ccc8a54c50b06885fb">Cockroach@7e452</a> - it’s quite likely that over time, things will change quite a bit still.</p>
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+      <li>
+        <h3>
+          <a href="gmail-filter-inbox-zero.html">
+            Using Gmail like Inbox (Zero)
+            <small>29 Dec 2018</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="single-decree-paxos-tla-compare-and-swap.html">
+            Paxos on Steroids and a Crash Course in TLA+
+            <small>07 Apr 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="if-its-not-paxos-its-probably-wrong-gryadka.html">
+            Gryadka is not Paxos, so it's probably wrong (RETRACTED)
+            <small>23 Mar 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+  </ul>
+</div>
+
+
+      
+  <!-- Add Disqus comments. -->
+  <div id="disqus_thread"></div>
+  <script type="text/javascript">
+    var disqus_shortname = 'tschottdorf'; // required: replace example with your forum shortname
+    (function() {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+
+
+      <div class="footer">
+        <p>
+          &copy; 2018. All rights reserved.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

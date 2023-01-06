@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Using CircleCI with Docker &middot; Tobias Grieger
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="public/css/poole.css">
+  <link rel="stylesheet" href="public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://tbg.github.io/public/apple-touch-icon-144-precomposed.png">
+                                 <link rel="shortcut icon" href="public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="atom.xml">
+</head>
+
+  <script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+     (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+       m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+         })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-56656281-1', 'auto');
+    ga('send', 'pageview');
+
+</script>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+        <h3 class="masthead-title">
+          <a href="index.html" title="Home">Tobias Grieger</a>
+
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="about/index.html">About</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="archive/index.html">Archive</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="atom.xml">Feed</a></small>
+          
+
+        </h3>
+      </div>
+
+      <div class="post">
+  <h1 class="post-title">Using CircleCI with Docker</h1>
+  <span class="post-date">16 Nov 2014</span>
+  <p><em>I recently spent a weekend switching <a href="https://github.com/cockroachdb/cockroach">Cockroach</a> to <a href="http://circleci.com">CircleCI</a> with <a href="http://docker.io">Docker</a> for our continuous integration needs. Previously, we had a standard build script on <a href="https://travis-ci.org/">Travis CI</a>, but with a variety of dependencies that needed to be compiled and vendored in, the average build took about ten minutes to get to the unit tests.
+Now we clock in at about half that but are able to actually orchestrate a <a href="https://github.com/cockroachdb/cockroach">Cockroach</a> cluster and run acceptance tests. But there are some small kinks that are useful to know about.</em></p>
+
+<p>Cockroach (at the time of writing) comes with three images:</p>
+
+<ul>
+  <li><code class="highlighter-rouge">cockroachdb/cockroach-devbase</code>: A development base image.</li>
+  <li><code class="highlighter-rouge">cockroachdb/cockroach-dev</code>: The development image, based on
+ cockroach-devbase.</li>
+  <li><code class="highlighter-rouge">cockroachdb/cockroach</code>: A small, statically linked
+<a href="https://github.com/cockroachdb/cockroach">Cockroach</a> binary inside
+of a <a href="http://busybox.net">BusyBox</a>.</li>
+</ul>
+
+<p>We want <a href="http://circleci.com">CircleCI</a> to build those three images and run a bunch of tests.</p>
+
+<h2 id="caching-docker-images">Caching Docker images</h2>
+<p>Unfortunately, while Docker locally caches the result of every build step and will blaze through without doing any actual work until it encounters a step that breaks the cache (for instance because a file from the build context changed), on <a href="http://circleci.com">CircleCI</a> each build runs on a fresh virtual machine somewhere on their cluster.
+This means that unless you’re smart about it, Docker will always build everything from the very first step. But the goal was to not have to that - what next?</p>
+
+<p>Luckily, <a href="https://circleci.com/docs/docker">CircleCI answers this</a> themselves and advises you to use <code class="highlighter-rouge">docker save</code> to export the built image into a tar file, which you can then tell them to cache:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>dependencies:
+  cache_directories:
+    - "~/docker"
+
+  override:
+    - if [[ -e ~/docker/image.tar ]]; then \
+        docker load -i ~/docker/image.tar; fi
+    - ./build/build-docker.sh
+    - mkdir -p ~/docker; docker save cockroachdb/cockroach-devbase \
+        &gt; ~/docker/image.tar
+</code></pre></div></div>
+
+<p>While this works, <strong>it costs time</strong>. For our ~1GB <code class="highlighter-rouge">cockroachdb/cockroach-devbase</code> image, about a minute to load and a little less to save. Plus, the data stored on the cache has to be copied over the network to our vm every time a test runs - another noticeable fraction of a minute.</p>
+
+<p>So we pay a price here to use Docker, but yes - once we have the base image loaded, building the actual <code class="highlighter-rouge">cockroachdb/cockroach-dev</code> image is very fast - way less than a minute.</p>
+
+<h3 id="git-kills-the-cache">Git kills the cache</h3>
+<p>If you’ve made it that far, you’ll be fairly happy, but if you’re building containers that get the <code class="highlighter-rouge">.git</code> directory in their build context, you’ll notice that it is <strong>never cached</strong>.</p>
+
+<p>That’s because CircleCI gives you (more or less) a fresh repo every time - each file will be new and Docker will invalidate its cache for them, even if they haven’t changed content-wise.</p>
+
+<p>This may not be that obvious if you’re only building your image once, but we’re running acceptance tests which create containers repeatedly, and we <em>do notice</em> if it does unecessary work every time.</p>
+
+<p>This led me to concoct the following, beautiful hack:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">checkout</span><span class="pi">:</span>
+  <span class="na">post</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">find . -exec touch -t 201401010000 {} \;</span>
+    <span class="pi">-</span> <span class="s">for x in $(git ls-tree --full-tree --name-only -r HEAD);\</span>
+      <span class="s">do touch -t \</span>
+      <span class="s">$(date -d "$(git log -1 --format=%ci "${x}")" +%y%m%d%H%M.%S) \</span>
+      <span class="s">"${x}"; done</span>
+</code></pre></div></div>
+
+<p>This goes through the repo after checkout, first resetting every the timestamp for each item to 2014/01/01. Then, for all files which are tracked by git, we take the timestamp of the last commit that changed this file.
+Not beautiful, and there might be a better solution, but CircleCI’s support at the time of writing couldn’t come up with anything better on the spot.</p>
+
+<h2 id="testing">Testing</h2>
+<p>The actual tests are easy. We’ve got full-fledged containers disposable, and we add the following sections to <code class="highlighter-rouge">circle.yml</code>:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>test:
+  override:
+    - docker run "cockroachdb/cockroach-dev" test
+    - make acceptance
+</code></pre></div></div>
+
+<p>The former runs our unit tests and does race testing, while the latter boots up a cluster of three nodes and verifies that it connects fully. We’ll make sure to add more tests here over time and verify complex behaviour of the cluster as a system.</p>
+
+<h2 id="deployment">Deployment</h2>
+
+<p>Finally, we can automagically deploy the new build in case the tests come up green. <code class="highlighter-rouge">./build/build-docker-deploy</code> builds our deployment container; the rest is straight from CircleCI’s examples.</p>
+
+<p>With this section, any green build will be build statically, tested again for good measure in the static environment, and finally pushed to the Docker registry for you all to enjoy.</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>deployment:
+  docker:
+    branch: master
+    commands:
+      - ./build/build-docker-deploy.sh:
+         timeout: 600
+      - sed "s/&lt;EMAIL&gt;/$DOCKER_EMAIL/;s/&lt;AUTH&gt;/$DOCKER_AUTH/" &gt; \
+        "resources/deploy_templates/.dockercfg.template" &gt; ~/.dockercfg
+      - docker push cockroachdb/cockroach
+</code></pre></div></div>
+
+<h2 id="you-cant-delete-images">You can’t delete images</h2>
+<p>Just something to think about. It’s tempting to create containers that have predefined names, and sometimes you’ll want to delete and recreate them in your tests. Doesn’t work here.
+<a href="http://circleci.com">CircleCI</a>’s support told me that</p>
+
+<blockquote>
+  <p>deleting btrfs snapshots requires additional capabilities that the
+pseudo-root user inside a container doesn’t have. Generally docker rm isn’t
+necessary. We completely destroy the entire container and everything associated with it at the end of a build anyway.</p>
+</blockquote>
+
+<p>You can work around this usually, but if you write more complex acceptance tests, just make sure that you never need to remove a container in the process.</p>
+
+<h2 id="the-full-circleyml--conclusion">The full circle.yml &amp; conclusion</h2>
+
+<ul>
+  <li><a href="http://circleci.com">CircleCI</a> is great and the folks over there are
+helpful. Also: Free for Open Source projects.</li>
+  <li><a href="http://docker.io">Docker</a> support works well and opens the door to
+testing a lot more than you could before.</li>
+  <li>Caching is a bit tricky: Large images cost time to move around the network,
+and they need to be fed in and out of Docker manually - also cost-intensive.
+Apparently, solutions for this are being investigated.</li>
+</ul>
+
+<p>All in all: It’s already good, and it will be much better soon. There’s really no reason to go without Docker if you already have a Dockerfile for your project.</p>
+
+<p>Here’s our full Dockerfile at the time of writing (slightly edited):</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">machine</span><span class="pi">:</span>
+  <span class="na">services</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">docker</span>
+
+<span class="na">checkout</span><span class="pi">:</span>
+  <span class="na">post</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">find . -exec touch -t 201401010000 {} \;</span>
+    <span class="pi">-</span> <span class="s">for x in $(git ls-tree --full-tree --name-only -r HEAD); do \</span>
+      <span class="s">touch -t $(date -d "$(git log -1 --format=%ci "${x}")" \</span>
+      <span class="s">+%y%m%d%H%M.%S) "${x}"; done</span>
+
+<span class="na">dependencies</span><span class="pi">:</span>
+  <span class="na">cache_directories</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s2">"</span><span class="s">~/docker"</span>
+  <span class="na">override</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">mkdir -p ~/docker</span>
+    <span class="pi">-</span> <span class="s">if [[ -e ~/docker/base.tar ]]; then \</span>
+        <span class="s">docker load -i ~/docker/base.tar; fi</span>
+    <span class="pi">-</span> <span class="s">./build/build-docker-dev.sh</span>
+    <span class="pi">-</span> <span class="s">docker save "cockroachdb/cockroach-devbase" &gt; ~/docker/base.tar</span>
+    <span class="pi">-</span> <span class="s">if [[ ! -e ~/docker/dnsmasq.tar ]]; then \</span>
+        <span class="s">docker pull "cockroachdb/dnsmasq" &amp;&amp; \</span>
+        <span class="s">docker save "cockroachdb/dnsmasq" &gt; ~/docker/dnsmasq.tar; \</span>
+      <span class="s">else docker load -i ~/docker/dnsmasq.tar; fi</span>
+    <span class="pi">-</span> <span class="s">docker history "cockroachdb/cockroach-dev"</span>
+
+<span class="na">test</span><span class="pi">:</span>
+  <span class="na">override</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">docker run "cockroachdb/cockroach-dev" test</span>
+    <span class="pi">-</span> <span class="s">make acceptance</span>
+
+<span class="na">deployment</span><span class="pi">:</span>
+  <span class="na">docker</span><span class="pi">:</span>
+    <span class="na">branch</span><span class="pi">:</span> <span class="s">master</span>
+    <span class="na">commands</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">./build/build-docker-deploy.sh</span><span class="pi">:</span>
+          <span class="na">timeout</span><span class="pi">:</span> <span class="s">600</span>
+      <span class="pi">-</span> <span class="s">sed "s/&lt;EMAIL&gt;/$DOCKER_EMAIL/;s/&lt;AUTH&gt;/$DOCKER_AUTH/" &lt; \</span>
+        <span class="s">"resources/deploy_templates/.dockercfg.template" &gt; ~/.dockercfg</span>
+      <span class="pi">-</span> <span class="s">docker push cockroachdb/cockroach</span>
+</code></pre></div></div>
+
+<p>You can find the setup as described above in <a href="https://github.com/cockroachdb/cockroach/tree/7e452c2a8a9537e4ba5906ccc8a54c50b06885fb">Cockroach@7e452</a>.</p>
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+      <li>
+        <h3>
+          <a href="gmail-filter-inbox-zero.html">
+            Using Gmail like Inbox (Zero)
+            <small>29 Dec 2018</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="single-decree-paxos-tla-compare-and-swap.html">
+            Paxos on Steroids and a Crash Course in TLA+
+            <small>07 Apr 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="if-its-not-paxos-its-probably-wrong-gryadka.html">
+            Gryadka is not Paxos, so it's probably wrong (RETRACTED)
+            <small>23 Mar 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+  </ul>
+</div>
+
+
+      
+  <!-- Add Disqus comments. -->
+  <div id="disqus_thread"></div>
+  <script type="text/javascript">
+    var disqus_shortname = 'tschottdorf'; // required: replace example with your forum shortname
+    (function() {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+
+
+      <div class="footer">
+        <p>
+          &copy; 2018. All rights reserved.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

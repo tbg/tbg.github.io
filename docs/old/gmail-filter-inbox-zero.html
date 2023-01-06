@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Using Gmail like Inbox (Zero) &middot; Tobias Grieger
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="public/css/poole.css">
+  <link rel="stylesheet" href="public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://tbg.github.io/public/apple-touch-icon-144-precomposed.png">
+                                 <link rel="shortcut icon" href="public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="atom.xml">
+</head>
+
+  <script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+     (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+       m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+         })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-56656281-1', 'auto');
+    ga('send', 'pageview');
+
+</script>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+        <h3 class="masthead-title">
+          <a href="index.html" title="Home">Tobias Grieger</a>
+
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="about/index.html">About</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="archive/index.html">Archive</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="atom.xml">Feed</a></small>
+          
+
+        </h3>
+      </div>
+
+      <div class="post">
+  <h1 class="post-title">Using Gmail like Inbox (Zero)</h1>
+  <span class="post-date">29 Dec 2018</span>
+  <p>With Google Inbox <a href="https://gsuiteupdates.googleblog.com/2018/09/inbox-by-gmail-shutdown.html">shutting down</a> in March 2019, I made the move over to Gmail
+for my work email a few months ago. My volume of non-Github emails is low, so
+taming the Github firehose was the crucial point here.  In Inbox, I had a setup
+(an admittedly wonky one) that would filter GitHub mails that were likely
+relevant to me into categories from which I would “mute out” the threads I
+didn’t think were relevant to me. That way, I’d look at any issue/PR that I
+wasn’t going to be involved in once, without having to re-discard the thread
+when new messages would arrive over and over again.</p>
+
+<p>This allowed me to be pretty close to <a href="https://en.wiktionary.org/wiki/inbox_zero">Inbox Zero</a> in all categories.</p>
+
+<p>Note that Inbox/Gmail is smart about un-muting if the “disposition” changes
+(i.e. if you receive a Github notification because you receive all
+notifications, then mute, and then get assigned to the issue, the last message
+will unmute the thread because the recipient changed).</p>
+
+<p>The way I wanted things organized in Gmail is as follows:</p>
+
+<ul>
+  <li>the inbox receives stuff from the Github firehose that I’ll likely want to
+look at</li>
+  <li>a Firehose label (skipping the inbox) receives the remainder of the Github
+firehose</li>
+  <li>a Talk label (skipping the inbox) receives all non-Github mail.</li>
+</ul>
+
+<p>It’s straightforward (in my case) to define the filter rules so that emails go
+into the appropriate labels. Unfortunately, muting doesn’t work the same way
+(except for the inbox): Muted threads will still be sorted into the labels and
+there’s no way around that (since muting is a per-thread property, but all the
+filter gets to look at is the newly arrived message).</p>
+
+<p>So I use an AppScript cronjob that removes messages belonging to muted threads
+from my custom labels, which is good enough for me. Occasionally there’ll be a
+muted thread there, but if I ignore it, it’ll go away and, more importantly,
+the vast majority of them never even surface on my screen again.</p>
+
+<p>See <a href="https://blog.filippo.io/gmail-bot-with-apps-script-and-typescript/">here</a> on how to get this script into the right place, but here it is:</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">function</span> <span class="nx">HideMutedThreads</span><span class="p">()</span> <span class="p">{</span>
+  <span class="kd">var</span> <span class="nx">userLabels</span> <span class="o">=</span> <span class="nx">GmailApp</span><span class="p">.</span><span class="nx">getUserLabels</span><span class="p">();</span>
+  <span class="kd">var</span> <span class="nx">search</span> <span class="o">=</span> <span class="s2">"is:mute {in:inbox "</span> <span class="o">+</span> <span class="nx">userLabels</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">label</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="s2">"label:"</span><span class="o">+</span><span class="nx">label</span><span class="p">.</span><span class="nx">getName</span><span class="p">();</span>
+  <span class="p">}).</span><span class="nx">join</span><span class="p">(</span><span class="s2">" "</span><span class="p">)</span> <span class="o">+</span> <span class="s2">"}"</span><span class="p">;</span>
+  
+  <span class="nx">Logger</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">search</span><span class="p">);</span>
+  
+  <span class="kd">var</span> <span class="nx">threads</span> <span class="o">=</span> <span class="nx">GmailApp</span><span class="p">.</span><span class="nx">search</span><span class="p">(</span><span class="nx">search</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">thread</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nx">Logger</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">thread</span><span class="p">.</span><span class="nx">getFirstMessageSubject</span><span class="p">());</span>
+
+    <span class="nx">userLabels</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">label</span><span class="p">)</span> <span class="p">{</span>
+      <span class="nx">thread</span><span class="p">.</span><span class="nx">removeLabel</span><span class="p">(</span><span class="nx">label</span><span class="p">);</span>
+    <span class="p">});</span>
+    <span class="nx">thread</span><span class="p">.</span><span class="nx">moveToArchive</span><span class="p">();</span>
+  <span class="p">});</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>And here are my filters:</p>
+
+<blockquote>
+  <p>Matches: -from:{notifications@github.com}
+Do this: Skip Inbox, Apply label “Talk”</p>
+</blockquote>
+
+<blockquote>
+  <p>Matches: from:notifications@github.com -{cc:{author@noreply.github.com review_requested@noreply.github.com comment@noreply.github.com mention@noreply.github.com assign@noreply.github.com} subject:{storage performance perf server engine mvcc bug release roachtest stress teamcity backport}
+Do this: Skip Inbox, Apply label “Firehose”, Never send it to Spam, Never mark it as important</p>
+</blockquote>
+
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+      <li>
+        <h3>
+          <a href="single-decree-paxos-tla-compare-and-swap.html">
+            Paxos on Steroids and a Crash Course in TLA+
+            <small>07 Apr 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="if-its-not-paxos-its-probably-wrong-gryadka.html">
+            Gryadka is not Paxos, so it's probably wrong (RETRACTED)
+            <small>23 Mar 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="sabbatical-linux-x64-exploits.html">
+            Sabbatical Reading List: Linux x64 Exploits
+            <small>22 Jan 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+  </ul>
+</div>
+
+
+      
+  <!-- Add Disqus comments. -->
+  <div id="disqus_thread"></div>
+  <script type="text/javascript">
+    var disqus_shortname = 'tschottdorf'; // required: replace example with your forum shortname
+    (function() {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+
+
+      <div class="footer">
+        <p>
+          &copy; 2018. All rights reserved.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

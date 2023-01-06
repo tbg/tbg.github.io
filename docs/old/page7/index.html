@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Tobias Grieger &middot; Stuff I Ran Into
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="../public/css/poole.css">
+  <link rel="stylesheet" href="../public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://tbg.github.io/public/apple-touch-icon-144-precomposed.png">
+                                 <link rel="shortcut icon" href="../public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="../atom.xml">
+</head>
+
+  <script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+     (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+       m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+         })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-56656281-1', 'auto');
+    ga('send', 'pageview');
+
+</script>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+        <h3 class="masthead-title">
+          <a href="../index.html" title="Home">Tobias Grieger</a>
+
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="../about/index.html">About</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="../archive/index.html">Archive</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="../atom.xml">Feed</a></small>
+          
+
+        </h3>
+      </div>
+
+      <div class="posts">
+  
+  <div class="post">
+    <h1 class="post-title">
+      <a href="../cgo-and-its-cost.html">
+        Cgo And Its Cost
+      </a>
+    </h1>
+
+    <span class="post-date">24 Jul 2016</span>
+
+    <p><em>This post originally appeared on the <a href="https://blog.cockroachlabs.com">Cockroach Labs blog</a> as <a href="https://www.cockroachlabs.com/blog/the-cost-and-complexity-of-cgo/">The Cost and Complexity of Cgo</a>.</em></p>
+
+<p><a href="https://blog.golang.org/c-go-cgo">Cgo</a> is a pretty important part of Go: It’s your window to calling anything that isn’t Go (or, more precisely, anything that has C bindings).</p>
+
+<p>For <a href="https://github.com/cockroachdb/cockroach">CockroachDB</a>, cgo lets us delegate a lot of the heavy lifting at the storage layer to <a href="http://rocksdb.org/">RocksDB</a>, for which no suitable replacement within the Go ecosystem exists, at least to the best of our knowledge. After some iterations, we’ve found that the right way to deal with these external libraries – of which we have quite a few – is to outsource them in Go wrapper packages:</p>
+
+<ul>
+  <li><a href="https://github.com/cockroachdb/c-rocksdb">c-rocksdb</a></li>
+  <li><a href="https://github.com/cockroachdb/c-snappy">c-snappy</a></li>
+  <li><a href="https://github.com/cockroachdb/c-protobuf">c-protobuf</a></li>
+  <li><a href="https://github.com/cockroachdb/c-jemalloc">c-jemalloc</a></li>
+  <li><a href="https://github.com/cockroachdb/c-lz4">c-lz4</a></li>
+</ul>
+
+<p>But as well as using cgo has worked for us, it hasn’t come for free.</p>
+
+<p>The experienced cgo-er will probably know this (and might prefer to lightly skim over the remainder of this post absentmindedly), but using cgo comes with some caveats that we’ll discuss below along with our suggested workarounds.</p>
+
+<h2 id="call-overhead">Call Overhead</h2>
+
+<p>The overhead of a cgo call will be orders of magnitude larger than that of a call within Go. That sounds horrible, but isn’t actually an issue in many applications. Let’s take a look via this toy <a href="https://github.com/tschottdorf/goplay/tree/master/cgobench">cgobench</a> package:</p>
+
+<div class="language-go highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">func</span><span class="x"> </span><span class="n">BenchmarkCGO</span><span class="p">(</span><span class="n">b</span><span class="x"> </span><span class="o">*</span><span class="n">testing</span><span class="o">.</span><span class="n">B</span><span class="p">)</span><span class="x"> </span><span class="p">{</span><span class="x">
+    </span><span class="n">CallCgo</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">N</span><span class="p">)</span><span class="x"> </span><span class="c">// call `C.(void f() {})` b.N times</span><span class="x">
+</span><span class="p">}</span><span class="x">
+
+</span><span class="c">// BenchmarkGo must be called with `-gcflags -l` to avoid inlining.</span><span class="x">
+</span><span class="k">func</span><span class="x"> </span><span class="n">BenchmarkGo</span><span class="p">(</span><span class="n">b</span><span class="x"> </span><span class="o">*</span><span class="n">testing</span><span class="o">.</span><span class="n">B</span><span class="p">)</span><span class="x"> </span><span class="p">{</span><span class="x">
+    </span><span class="n">CallGo</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">N</span><span class="p">)</span><span class="x"> </span><span class="c">// call `func() {}` b.N times</span><span class="x">
+</span><span class="p">}</span><span class="x">
+</span></code></pre></div></div>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ go test -bench . -gcflags '-l'    # disable inlining for fairness
+BenchmarkCGO-8  10000000              171 ns/op
+BenchmarkGo-8   2000000000           1.83 ns/op
+</code></pre></div></div>
+
+<p>In other words, in this (admittedly minimal) example there’s approximately a factor of 100 involved. Let’s not be crazy though. In absolute time, 171ns is often a perfectly acceptable price to pay, especially if your C code does substantial work. In our case, however, we clocked in the high tens of thousands of cgo calls during some tests, so we looked at pushing some of the code down to C to cut down on the number of iterations.</p>
+
+<p>Our conclusion was that the call overhead did not matter – equivalent C++ and Go implementations were indistinguishable performance-wise. However, we still ended up moving some operations to C++ with a <a href="https://github.com/cockroachdb/cockroach/pull/3155">fat improvement</a> due to being able to write a more efficient implementation.</p>
+
+<h2 id="manual-ish-memory-management">Manual-ish Memory Management</h2>
+
+<p>Go is a garbage-collected runtime, but C is not. That means that passing data from C into Go and vice versa must not be done carelessly, and that copies are often not avoidable. Especially when dealing with byte strings and interface crossing at high frequency (as we are), the prescribed usage of <a href="https://golang.org/cmd/cgo/#hdr-Go_references_to_C">C.CString and C.GoBytes</a> can increase memory pressure considerably – and of course copying data eats up CPU noticeably.</p>
+
+<p>In some cases, we were able to  avoid some of these copies. For example, when iterating over keys, we use <a href="https://github.com/cockroachdb/cockroach/blob/b1bbc5c8f980c823e9ff1cd07032ce8ace35f669/storage/engine/rocksdb.go#L563">something like</a>:</p>
+
+<div class="language-go highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">func</span><span class="x"> </span><span class="p">(</span><span class="n">r</span><span class="x"> </span><span class="o">*</span><span class="n">rocksDBIterator</span><span class="p">)</span><span class="x"> </span><span class="n">Key</span><span class="p">()</span><span class="x"> </span><span class="p">[]</span><span class="kt">byte</span><span class="x"> </span><span class="p">{</span><span class="x">
+   </span><span class="k">return</span><span class="x"> </span><span class="n">C</span><span class="o">.</span><span class="n">GoBytes</span><span class="p">(</span><span class="n">unsafe</span><span class="o">.</span><span class="n">Pointer</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">key</span><span class="p">),</span><span class="x"> </span><span class="n">s</span><span class="o">.</span><span class="nb">len</span><span class="p">)</span><span class="x">
+</span><span class="p">}</span><span class="x">
+
+</span><span class="k">func</span><span class="x"> </span><span class="p">(</span><span class="n">r</span><span class="x"> </span><span class="o">*</span><span class="n">rocksDBIterator</span><span class="p">)</span><span class="x"> </span><span class="n">Next</span><span class="p">()</span><span class="x"> </span><span class="p">{</span><span class="x">
+   </span><span class="c">// The memory referenced by r.key stays valid until the next operation</span><span class="x">
+   </span><span class="c">// on the iterator.</span><span class="x">
+   </span><span class="n">r</span><span class="o">.</span><span class="n">key</span><span class="x"> </span><span class="o">=</span><span class="x"> </span><span class="n">C</span><span class="o">.</span><span class="n">DBNext</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">iter</span><span class="p">)</span><span class="x"> </span><span class="c">// cgo call</span><span class="x">
+</span><span class="p">}</span><span class="x">
+</span></code></pre></div></div>
+
+<p>If all we want to do is check the current key against  a criterion, we know the underlying memory isn’t going to be freed while we need it. Hence, this (made-up) bit of code seems wasteful:</p>
+
+<div class="language-go highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">for</span><span class="x"> </span><span class="p">;</span><span class="x"> </span><span class="n">iter</span><span class="o">.</span><span class="n">Valid</span><span class="p">();</span><span class="x"> </span><span class="n">iter</span><span class="o">.</span><span class="n">Next</span><span class="p">()</span><span class="x"> </span><span class="p">{</span><span class="x">
+    </span><span class="k">if</span><span class="x"> </span><span class="n">bytes</span><span class="o">.</span><span class="n">HasPrefix</span><span class="p">(</span><span class="n">iter</span><span class="o">.</span><span class="n">Key</span><span class="p">(),</span><span class="x"> </span><span class="n">someKey</span><span class="p">)</span><span class="x"> </span><span class="p">{</span><span class="x"> </span><span class="c">// copy!</span><span class="x">
+        </span><span class="c">// ...</span><span class="x">
+    </span><span class="p">}</span><span class="x">
+</span><span class="p">}</span><span class="x">
+</span></code></pre></div></div>
+
+<p>To mitigate all of these copies, we add (and use) a zero-copy (and unsafe) version of Key():</p>
+
+<div class="language-go highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">// unsafeKey() returns the current key referenced by the iterator. The memory</span><span class="x">
+</span><span class="c">// is invalid after the next operation on the iterator.</span><span class="x">
+</span><span class="k">func</span><span class="x"> </span><span class="p">(</span><span class="n">r</span><span class="x"> </span><span class="o">*</span><span class="n">rocksDBIterator</span><span class="p">)</span><span class="x"> </span><span class="n">unsafeKey</span><span class="p">()</span><span class="x"> </span><span class="p">[]</span><span class="kt">byte</span><span class="x"> </span><span class="p">{</span><span class="x">
+    </span><span class="c">// Go limits arrays to a length that will fit in a (signed) 32-bit</span><span class="x">
+    </span><span class="c">// integer. Fall back to copying if our slice is larger.</span><span class="x">
+    </span><span class="k">const</span><span class="x"> </span><span class="n">maxLen</span><span class="x"> </span><span class="o">=</span><span class="x"> </span><span class="m">0x7fffffff</span><span class="x">
+    </span><span class="k">if</span><span class="x"> </span><span class="n">s</span><span class="o">.</span><span class="nb">len</span><span class="x"> </span><span class="o">&gt;</span><span class="x"> </span><span class="n">maxLen</span><span class="x"> </span><span class="p">{</span><span class="x">
+        </span><span class="k">return</span><span class="x"> </span><span class="n">C</span><span class="o">.</span><span class="n">GoBytes</span><span class="p">(</span><span class="n">unsafe</span><span class="o">.</span><span class="n">Pointer</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">key</span><span class="p">),</span><span class="x"> </span><span class="n">s</span><span class="o">.</span><span class="nb">len</span><span class="p">)</span><span class="x">
+    </span><span class="p">}</span><span class="x">
+    </span><span class="k">return</span><span class="x"> </span><span class="p">(</span><span class="o">*</span><span class="p">[</span><span class="n">maxLen</span><span class="p">]</span><span class="kt">byte</span><span class="p">)(</span><span class="n">unsafe</span><span class="o">.</span><span class="n">Pointer</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">data</span><span class="p">))[</span><span class="o">:</span><span class="n">s</span><span class="o">.</span><span class="nb">len</span><span class="o">:</span><span class="n">s</span><span class="o">.</span><span class="nb">len</span><span class="p">]</span><span class="x">
+</span><span class="p">}</span><span class="x">
+</span></code></pre></div></div>
+
+<p>While this is going to be more efficient and is safe when properly used, it looks and is much more involved. We’re creating a slice which is backed by memory allocated by C. We need to be careful that the C memory is not freed while our slice (or any derivative slices) are still in use. We can get away with it since it’s in our low-level code, but this is certainly not an option for any type of public-facing API; it would be guaranteed that some users would not honor the subtle contract tacked on to the returned byte slice and experience null pointer exceptions randomly.</p>
+
+<h2 id="cgoroutines--goroutines">Cgoroutines != Goroutines</h2>
+
+<p>This one can be a serious issue and while it’s obvious when you think about it, it can come as a surprise when you don’t. Consider the following:</p>
+
+<div class="language-go highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">func</span><span class="x"> </span><span class="n">main</span><span class="p">()</span><span class="x"> </span><span class="p">{</span><span class="x">
+  </span><span class="k">for</span><span class="x"> </span><span class="n">i</span><span class="x"> </span><span class="o">:=</span><span class="x"> </span><span class="m">0</span><span class="p">;</span><span class="x"> </span><span class="n">i</span><span class="x"> </span><span class="o">&lt;</span><span class="x"> </span><span class="m">1000</span><span class="p">;</span><span class="x"> </span><span class="n">i</span><span class="o">++</span><span class="x"> </span><span class="p">{</span><span class="x">
+    </span><span class="k">go</span><span class="x"> </span><span class="k">func</span><span class="p">()</span><span class="x"> </span><span class="p">{</span><span class="x">
+        </span><span class="n">time</span><span class="o">.</span><span class="n">Sleep</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">Second</span><span class="p">)</span><span class="x">
+    </span><span class="p">}()</span><span class="x">
+  </span><span class="p">}</span><span class="x">
+  </span><span class="n">time</span><span class="o">.</span><span class="n">Sleep</span><span class="p">(</span><span class="m">2</span><span class="o">*</span><span class="n">time</span><span class="o">.</span><span class="n">Second</span><span class="p">)</span><span class="x">
+</span><span class="p">}</span><span class="x">
+</span></code></pre></div></div>
+
+<p>This boring program wouldn’t do much. 1000 goroutines come pretty much for free in Go; the “stack” allocated to each of them is only a few kilobytes.</p>
+
+<p>What if we brought cgo into the game? The code below is a simplified version of an <a href="https://github.com/tschottdorf/goplay/blob/master/cgobench/cgobench_test.go">example in cgobench</a>:</p>
+
+<div class="language-go highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">//#include &lt;unistd.h&gt;</span><span class="x">
+</span><span class="k">import</span><span class="x"> </span><span class="s">"C"</span><span class="x">
+
+</span><span class="k">func</span><span class="x"> </span><span class="n">main</span><span class="p">()</span><span class="x"> </span><span class="p">{</span><span class="x">
+  </span><span class="k">for</span><span class="x"> </span><span class="n">i</span><span class="x"> </span><span class="o">:=</span><span class="x"> </span><span class="m">0</span><span class="p">;</span><span class="x"> </span><span class="n">i</span><span class="x"> </span><span class="o">&lt;</span><span class="x"> </span><span class="m">1000</span><span class="p">;</span><span class="x"> </span><span class="n">i</span><span class="o">++</span><span class="x"> </span><span class="p">{</span><span class="x">
+    </span><span class="k">go</span><span class="x"> </span><span class="k">func</span><span class="p">()</span><span class="x"> </span><span class="p">{</span><span class="x">
+        </span><span class="n">C</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="m">1</span><span class="x"> </span><span class="c">/* seconds */</span><span class="p">)</span><span class="x">
+    </span><span class="p">}()</span><span class="x">
+  </span><span class="p">}</span><span class="x">
+  </span><span class="n">time</span><span class="o">.</span><span class="n">Sleep</span><span class="p">(</span><span class="m">2</span><span class="o">*</span><span class="n">time</span><span class="o">.</span><span class="n">Second</span><span class="p">)</span><span class="x">
+</span><span class="p">}</span><span class="x">
+</span></code></pre></div></div>
+
+<p>The “surprise” is that this behaves very differently. A blocking cgo call occupies a system thread; the Go runtime can’t schedule them like it can a goroutine, and the stack, being a real stack, is on the order of megabytes!</p>
+
+<p>Again, not a big deal if you’re calling into cgo with appropriately bounded concurrency. But if you’re writing Go, chances are you’re used to not thinking about Goroutines too much. A blocking cgo call in the critical request path could leave you with hundreds and hundreds of threads which might well <a href="https://groups.google.com/forum/#!topic/golang-nuts/8gszDBRZh_4">lead to issues</a>. In particular, <code class="highlighter-rouge">ulimit -r</code> or <code class="highlighter-rouge">debug.SetMaxThreads</code> can lead to a quick demise.</p>
+
+<p>Or, in the words of <a href="http://dave.cheney.net/">Dave Cheney</a>,</p>
+
+<blockquote>
+  <p>“Excessive cgo usage breaks Go’s promise of lightweight concurrency.”</p>
+</blockquote>
+
+<h2 id="cross-out-cross-compilation">Cross Out Cross-Compilation</h2>
+
+<p>With cgo, you lose (or rather, you don’t win) the ease with which cross-compilation works in Go 1.5 and higher. This can’t be surprising (since cross-compiling Go with a C dependency certainly must entail cross-compiling the C dependency) but can be a criterion if you have the luxury of choosing between a Go-native package or an external library.</p>
+
+<p><a href="http://dave.cheney.net/2015/03/03/cross-compilation-just-got-a-whole-lot-better-in-go-1-5">Dave Cheney’s posts</a> on this are usually about the best source of information available.</p>
+
+<h2 id="static-builds">Static Builds</h2>
+
+<p>This is a similar story to cross-compilation, though the situation is a little better. Building static binaries is still possible using cgo, but needs some tweaking. Prior to Go 1.5, the most prominent example of this was having to use the netgo build tag to avoid linking in glibc for DNS resolution. This has since become the default, but there are still subtleties such as having to specify a custom -installsuffix (to avoid using cached builds from a non- static build), passing the right flags to the external linker (in our case, -extldflags “-static”), and building with -a to enforce a complete rebuild.</p>
+
+<p>Not all of this may be necessary any more, but you get the idea: It gets more manual and, with all the rebuilding, slower. For anyone interested, <a href="https://tschottdorf.github.io/linking-golang-go-statically-cgo-testing">here’s my first (and since dated) wrestle with cgo</a> and a <a href="https://github.com/golang/go/issues/13470">mysterious bug</a> which was picked up <a href="https://tschottdorf.github.io/golang-static-linking-bug">in another post</a>.</p>
+
+<h2 id="debugging">Debugging</h2>
+
+<p>Debugging your code will be harder. The portions residing in C aren’t as readily accessed through Go’s tooling. PProf, runtime statistics, line numbers, stack traces – all will sort of feather out as you cross the boundary. GoRename and its friends may <a href="https://github.com/golang/tools/blob/5b9ecb9f68e2e1be33b663895c700aac9726378e/refactor/rename/rename.go#L425">occasionally litter</a> your source code with identifiers that postdate the translation to cgo-generated code. The loss can feel jarring since the tooling usually works so well. But, of course, gdb still works.</p>
+
+<h2 id="summary">Summary</h2>
+
+<p>All in all, cgo is a great tool with limitations. We’ve recently begun moving some of the low-level operations down to C++, which gave some <a href="https://github.com/cockroachdb/cockroach/pull/3155">impressive speed-ups</a>. Other attempts produced no benefit. Isn’t performance work fun?</p>
+
+  </div>
+  
+</div>
+
+<div class="pagination">
+  
+    <a class="pagination-item older" href="../page8/index.html">Older</a>
+  
+  
+    
+      <a class="pagination-item newer" href="../page6/index.html">Newer</a>
+    
+  
+</div>
+<h4>Recent posts:</h4>
+<ul class="posts">  
+	  
+	   <li>  
+		   <span>29 Dec 2018</span> &raquo;  
+		   <a href="../gmail-filter-inbox-zero.html">  
+		   Using Gmail like Inbox (Zero)</a>  
+	   </li>  
+	  
+	   <li>  
+		   <span>07 Apr 2017</span> &raquo;  
+		   <a href="../single-decree-paxos-tla-compare-and-swap.html">  
+		   Paxos on Steroids and a Crash Course in TLA+</a>  
+	   </li>  
+	  
+	   <li>  
+		   <span>23 Mar 2017</span> &raquo;  
+		   <a href="../if-its-not-paxos-its-probably-wrong-gryadka.html">  
+		   Gryadka is not Paxos, so it's probably wrong (RETRACTED)</a>  
+	   </li>  
+	  
+	   <li>  
+		   <span>22 Jan 2017</span> &raquo;  
+		   <a href="../sabbatical-linux-x64-exploits.html">  
+		   Sabbatical Reading List: Linux x64 Exploits</a>  
+	   </li>  
+	  
+	   <li>  
+		   <span>20 Jan 2017</span> &raquo;  
+		   <a href="../sabbatical-feynman-lectures.html">  
+		   Sabbatical Reading List: The Feynman Lectures</a>  
+	   </li>  
+	  
+</ul>
+
+
+      
+
+
+
+      <div class="footer">
+        <p>
+          &copy; 2018. All rights reserved.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

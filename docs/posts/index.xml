@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Posts on Tobias Grieger</title>
+    <link>https://tbg.github.io/posts/</link>
+    <description>Recent content in Posts on Tobias Grieger</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Fri, 06 Jan 2023 15:33:59 +0100</lastBuildDate><atom:link href="https://tbg.github.io/posts/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Hello World Again</title>
+      <link>https://tbg.github.io/posts/hello-world-again/</link>
+      <pubDate>Fri, 06 Jan 2023 15:33:59 +0100</pubDate>
+      
+      <guid>https://tbg.github.io/posts/hello-world-again/</guid>
+      <description>Hello world, again Decided to given regular blogging a try again since I&amp;rsquo;ve enjoyed some of my friends and acquaintainces&amp;rsquo; newsletters and keep private notes anyway.
+I have some ideas of what I might write about but I don&amp;rsquo;t want to scare anyone off :)
+You can subscribe here and you will receive a non-annoying e-mail whenever there is something new to see here. Responses to that e-mail will reach me and will put a smile on my face.</description>
+    </item>
+    
+  </channel>
+</rss>

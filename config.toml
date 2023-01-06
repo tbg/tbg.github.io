@@ -1,0 +1,25 @@
+baseURL = 'https://tbg.github.io/'
+languageCode = 'en-us'
+title = 'Tobias Grieger'
+theme = 'paper'
+publishDir = 'docs'
+
+[menu]
+[[menu.main]]
+  identifier = 'posts'
+  name = 'Posts'
+  title = 'Posts'
+  url = '/posts/'
+  weight = 1
+[[menu.main]]
+  identifier = 'subscribe'
+  name = 'Subscribe'
+  title = 'Subscribe'
+  url = 'https://tinyletter.com/tbg'
+  weight = 10
+
+[params]
+  # header social icons
+  twitter = 'tbgrieger'
+  github = 'tbg'
+  rss = true

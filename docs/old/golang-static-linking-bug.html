@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Static Cgo Builds, What Could Go Wrong? &middot; Tobias Grieger
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="public/css/poole.css">
+  <link rel="stylesheet" href="public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://tbg.github.io/public/apple-touch-icon-144-precomposed.png">
+                                 <link rel="shortcut icon" href="public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="atom.xml">
+</head>
+
+  <script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+     (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+       m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+         })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-56656281-1', 'auto');
+    ga('send', 'pageview');
+
+</script>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+        <h3 class="masthead-title">
+          <a href="index.html" title="Home">Tobias Grieger</a>
+
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="about/index.html">About</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="archive/index.html">Archive</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="atom.xml">Feed</a></small>
+          
+
+        </h3>
+      </div>
+
+      <div class="post">
+  <h1 class="post-title">Static Cgo Builds, What Could Go Wrong?</h1>
+  <span class="post-date">01 Jan 2016</span>
+  <p><em>The first computer bugs were found by <a href="https://upload.wikimedia.org/wikipedia/commons/8/8a/H96566k.jpg">cleaning out mechanical
+parts</a>. The
+bug described below unfortunately couldn’t be tracked down in such a
+straightforward fashion. But the discovery story is more interesting than “I
+looked into hundreds of relays” and goes way down the rabbit hole as we revisit
+a dozen hours’ worth of debugging at <a href="http://cockroachlabs.com">Cockroach Labs</a>.
+We’ll re-emerge with a lesson about static linking and cgo.</em></p>
+
+<p>A couple of weeks ago, my colleague <a href="https://github.com/tamird">@tamird</a> opened
+issue <a href="https://github.com/golang/go/issues/13470">#13470</a> against
+<a href="https://github.com/golang/go">golang/go</a>. In it, he gives the following
+snippet (if you want to follow along, I’ve prepared a <a href="golang-static-linking-bug.html#fn_1">Docker image</a>):</p>
+
+<div class="language-go highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">package</span><span class="x"> </span><span class="n">main</span><span class="x">
+
+</span><span class="k">import</span><span class="x"> </span><span class="p">(</span><span class="x">
+    </span><span class="s">"net"</span><span class="x">
+    </span><span class="s">"os/user"</span><span class="x">
+
+    </span><span class="s">"C"</span><span class="x"> </span><span class="c">// enable cgo for static build</span><span class="x">
+</span><span class="p">)</span><span class="x">
+
+</span><span class="k">func</span><span class="x"> </span><span class="n">main</span><span class="p">()</span><span class="x"> </span><span class="p">{</span><span class="x">
+    </span><span class="k">for</span><span class="x"> </span><span class="n">i</span><span class="x"> </span><span class="o">:=</span><span class="x"> </span><span class="m">0</span><span class="p">;</span><span class="x"> </span><span class="n">i</span><span class="x"> </span><span class="o">&lt;</span><span class="x"> </span><span class="m">1000</span><span class="p">;</span><span class="x"> </span><span class="n">i</span><span class="o">++</span><span class="x"> </span><span class="p">{</span><span class="x">
+        </span><span class="n">_</span><span class="p">,</span><span class="x"> </span><span class="n">_</span><span class="x"> </span><span class="o">=</span><span class="x"> </span><span class="n">net</span><span class="o">.</span><span class="n">Dial</span><span class="p">(</span><span class="s">"tcp"</span><span class="p">,</span><span class="x"> </span><span class="s">"localhost:1337"</span><span class="p">)</span><span class="x">
+        </span><span class="n">_</span><span class="p">,</span><span class="x"> </span><span class="n">_</span><span class="x"> </span><span class="o">=</span><span class="x"> </span><span class="n">user</span><span class="o">.</span><span class="n">Current</span><span class="p">()</span><span class="x">
+    </span><span class="p">}</span><span class="x">
+</span><span class="p">}</span><span class="x">
+</span></code></pre></div></div>
+
+<p>Looks about as innocuous as it is nonsensical, right? If we run it naively,
+nothing happens:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>go run main.go
+</code></pre></div></div>
+
+<p>But of course the <code class="highlighter-rouge">C</code> import above hints at trying a static build instead.
+Let’s do that:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ go run -ldflags '-extldflags "-static"' main.go
+fatal error: unexpected signal during runtime execution
+[signal 0xb code=0x1 addr=0xe5 pc=0x7fec267f8a5c]
+
+goroutine 1 [syscall, locked to thread]:
+runtime.cgocall(0x402620, 0xc82004bd30, 0xc800000000)
+    /usr/local/go/src/runtime/cgocall.go:120 +0x11b fp=0xc82004bce0 sp=0xc82004bcb0
+os/user.lookupUnix(0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0)
+    /usr/local/go/src/os/user/lookup_unix.go:99 +0x723 fp=0xc82004bea0 sp=0xc82004bd30
+os/user.Current(0x62eba8, 0x0, 0x0)
+    /usr/local/go/src/os/user/lookup.go:9 +0x24 fp=0xc82004bf00 sp=0xc82004bee0
+[...]
+</code></pre></div></div>
+
+<p>Jeez, what just happened here?</p>
+
+<p>This is obviously a panic. But it’s not a panic from Go-land, it’s a segfault
+(<code class="highlighter-rouge">signal 0xb</code> is signal <code class="highlighter-rouge">11=SIGSEGV</code>) from within a <a href="https://github.com/golang/go/blob/cb867d2fd64adc851f82be3c6eb6e38ec008930b/src/os/user/lookup_unix.go#L77">cgo call</a>
+to <code class="highlighter-rouge">getpwuid_r</code>, which belongs to <code class="highlighter-rouge">glibc</code>.</p>
+
+<p>Versed users of cgo and static builds will know that if you call out to <code class="highlighter-rouge">glibc</code>
+in your code (be it directly or through dependencies), your “static” binary
+will still need the exact version of <code class="highlighter-rouge">glibc</code> available at runtime to work
+correctly. In fact, if you add <code class="highlighter-rouge">-v</code> to the <code class="highlighter-rouge">-ldflags</code> parameter, we get
+warnings:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[...]
+/tmp/.../000002.o: In function `mygetpwuid_r':
+/tmp/.../os/user/lookup_unix.go:28: warning: Using 'getpwuid_r' in statically
+  linked applications requires at runtime the shared libraries from the glibc
+  version used for linking
+[...]
+</code></pre></div></div>
+
+<p>But we used <code class="highlighter-rouge">go run</code> directly and didn’t move the binary around or change our
+glibc. So this <strong>should</strong> work!</p>
+
+<p>In the test case, it’s the call to <code class="highlighter-rouge">user.Current()</code> which crashes the program.
+But what’s the role of the call <code class="highlighter-rouge">net.Dial()</code> before that? Well, the big
+surprise is that without that call, the program does not crash. Same for the
+loop. Remove it and voila, no error. So this isn’t a simple case of a call
+failing, it’s a weird concoction of ingredients producing this error.</p>
+
+<p>Still interested? It’s going to get technical. You can go <a href="golang-static-linking-bug.html#conclusion">straight to the
+conclusion</a>, but if you stick along I’ll walk you all the way through,
+from the first high level failure over hours of debugging to, fortunately, an
+ending.</p>
+
+<p><i id="fn_1">[1]</i>: <a href="https://github.com/tschottdorf/goplay/blob/master/issue_13470/Dockerfile">Dockerfile here</a>; invoke via <code class="highlighter-rouge">build -t gdb . &amp;&amp; docker run -ti gdb</code>.</p>
+
+<h2 id="discovery">Discovery</h2>
+
+<p>This bug hit us out of the blue in
+<a href="https://github.com/cockroachdb/cockroach/pull/3310">cockroachdb/cockroach#3310</a>.
+Basically, <a href="https://github.com/tamird">@tamird</a> was building a static test
+binary with the goal of running it during nightly builds. The test uses
+<a href="https://github.com/lib/pq">lib/pq</a> to connect to a <a href="http://github.com/cockroachdb/cockroach">Cockroach DB
+cluster</a> (which essentially speaks
+Postgres’ wire protocol). You already know what happened when he tried to run it:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>fatal error: unexpected signal during runtime execution
+[signal 0xb code=0x1 addr=0xe5 pc=0x7f3c781f3a5c]
+
+goroutine 3890 [syscall, locked to thread]:
+runtime.cgocall(0x44c7f0, 0xc82036a8d8, 0xc800000000)
+    /usr/local/go/src/runtime/cgocall.go:120 +0x11b fp=0xc82036a888 sp=0xc82036a858
+os/user._Cfunc_mygetpwuid_r(0x0, 0xc8203a8390, 0x7f3c5c000a10, 0x400, 0xc8200e4058, 0x7f3c00000000)
+    ??:0 +0x39 fp=0xc82036a8d8 sp=0xc82036a888
+[...]
+os/user.Current(0x13ce800, 0x0, 0x0)
+    /usr/local/go/src/os/user/lookup.go:9 +0x24 fp=0xc82036aaa8 sp=0xc82036aa88
+github.com/lib/pq.(*conn).setupSSLClientCertificates(0xc8201c9180, 0xc8202b2f00, 0xc82036b3d8)
+    /go/src/github.com/lib/pq/conn.go:983 +0x478 fp=0xc82036ad40 sp=0xc82036aaa8
+[...]
+</code></pre></div></div>
+
+<p>I had <a href="http://tschottdorf.github.io/linking-golang-go-statically-cgo-testing/">dabbled/fought with static cgo builds
+before</a>
+and had never seen it crash like that (even when trying), so I was intrigued
+and we went down the rabbit hole together.</p>
+
+<h2 id="first-steps">First Steps</h2>
+
+<p><a href="https://github.com/lib/pq/blob/11fc39a580a008f1f39bb3d11d984fb34ed778d9/conn.go#L983"><code class="highlighter-rouge">lib/pq/conn.go:984</code></a>
+is where the fatal call to <code class="highlighter-rouge">user.Current()</code> takes place. Leaving out a lot of
+code, this is roughly what the callpath to it looks like:</p>
+
+<p><i id="dialopen"> </i></p>
+<div class="language-go highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">func</span><span class="x"> </span><span class="n">DialOpen</span><span class="p">(</span><span class="n">d</span><span class="x"> </span><span class="n">Dialer</span><span class="p">,</span><span class="x"> </span><span class="n">name</span><span class="x"> </span><span class="kt">string</span><span class="p">)</span><span class="x"> </span><span class="p">(</span><span class="n">_</span><span class="x"> </span><span class="n">driver</span><span class="o">.</span><span class="n">Conn</span><span class="p">,</span><span class="x"> </span><span class="n">err</span><span class="x"> </span><span class="kt">error</span><span class="p">)</span><span class="x"> </span><span class="p">{</span><span class="x">
+    </span><span class="c">// ...</span><span class="x">
+    </span><span class="n">u</span><span class="p">,</span><span class="x"> </span><span class="n">err</span><span class="x"> </span><span class="o">:=</span><span class="x"> </span><span class="n">userCurrent</span><span class="p">()</span><span class="x"> </span><span class="c">// !!!</span><span class="x">
+    </span><span class="c">// later...</span><span class="x">
+    </span><span class="n">cn</span><span class="x"> </span><span class="o">:=</span><span class="x"> </span><span class="o">&amp;</span><span class="n">conn</span><span class="p">{}</span><span class="x">
+    </span><span class="n">cn</span><span class="o">.</span><span class="n">c</span><span class="p">,</span><span class="x"> </span><span class="n">err</span><span class="x"> </span><span class="o">=</span><span class="x"> </span><span class="n">dial</span><span class="p">(</span><span class="n">d</span><span class="p">,</span><span class="x"> </span><span class="n">o</span><span class="p">)</span><span class="x">
+    </span><span class="k">if</span><span class="x"> </span><span class="n">err</span><span class="x"> </span><span class="o">!=</span><span class="x"> </span><span class="no">nil</span><span class="x"> </span><span class="p">{</span><span class="x">
+        </span><span class="k">return</span><span class="x"> </span><span class="no">nil</span><span class="p">,</span><span class="x"> </span><span class="n">err</span><span class="x">
+    </span><span class="p">}</span><span class="x">
+    </span><span class="n">cn</span><span class="o">.</span><span class="n">ssl</span><span class="p">(</span><span class="n">o</span><span class="p">)</span><span class="x"> </span><span class="c">// never comes back from this call, see below</span><span class="x">
+    </span><span class="c">// ...</span><span class="x">
+</span><span class="p">}</span><span class="x">
+
+</span><span class="k">func</span><span class="x"> </span><span class="p">(</span><span class="n">cn</span><span class="x"> </span><span class="o">*</span><span class="n">conn</span><span class="p">)</span><span class="x"> </span><span class="n">ssl</span><span class="p">(</span><span class="n">o</span><span class="x"> </span><span class="n">values</span><span class="p">)</span><span class="x"> </span><span class="p">{</span><span class="x">
+    </span><span class="c">// ...</span><span class="x">
+    </span><span class="n">user</span><span class="p">,</span><span class="x"> </span><span class="n">err</span><span class="x"> </span><span class="o">:=</span><span class="x"> </span><span class="n">user</span><span class="o">.</span><span class="n">Current</span><span class="p">()</span><span class="x"> </span><span class="c">// boom (this is conn.go:983)</span><span class="x">
+    </span><span class="c">// ...</span><span class="x">
+</span><span class="p">}</span><span class="x">
+</span></code></pre></div></div>
+
+<p>It’s relatively easy to guess this in this heavily truncated version, but
+there’s actually a successful call to <code class="highlighter-rouge">user.Current()</code> from <code class="highlighter-rouge">userCurrent()</code>
+(marked with <code class="highlighter-rouge">!!!</code>). We only saw this after adding an <code class="highlighter-rouge">fmt.Println()</code> in
+<code class="highlighter-rouge">user.Current()</code> and wondered why that printed more than we expected. So,
+that’s weird - the crash is either random or it depends on
+something else happening before it.</p>
+
+<h2 id="reduction">Reduction</h2>
+
+<p>The first step in such a scenario is always reduction: someone else will likely
+have to help you, and they shouldn’t have to wade through boatloads of
+unrelated code.</p>
+
+<p>Unfortunately, straightforward attempts to reproduce the crash proved
+difficult. A bunch of calls to <code class="highlighter-rouge">user.Current()</code> in a static binary? Works.
+Rewriting it as a test? Works. Maybe the calls to <code class="highlighter-rouge">user.Current()</code> need to be
+in a proxy (or double-proxy) package? Works.</p>
+
+<p>We couldn’t figure it out but at least managed to strip a lot of code by
+experimentation. What we ended up with was a test that did nothing but open a
+<code class="highlighter-rouge">lib/pq</code> connection, triggering the same panic. Better than nothing.</p>
+
+<p>Now we were in the position to quickly iterate and try to close the
+gap between the two invocations of <code class="highlighter-rouge">user.Current()</code>. Remember, the bug is</p>
+
+<ol>
+  <li>call <code class="highlighter-rouge">user.Current()</code></li>
+  <li>something else happens</li>
+  <li>explode at <code class="highlighter-rouge">user.Current()</code>.</li>
+</ol>
+
+<p>It is fairly easy to see in the <a href="golang-static-linking-bug.html#dialopen">distilled version above</a> that there
+is exactly one relevant call between the two invocations<sup><a href="golang-static-linking-bug.html#fn_2">2</a></sup>:</p>
+
+<div class="language-go highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">user</span><span class="o">.</span><span class="n">Current</span><span class="p">()</span><span class="x">
+</span><span class="n">cn</span><span class="x"> </span><span class="o">:=</span><span class="x"> </span><span class="o">&amp;</span><span class="n">conn</span><span class="p">{}</span><span class="x">
+</span><span class="n">cn</span><span class="o">.</span><span class="n">c</span><span class="p">,</span><span class="x"> </span><span class="n">err</span><span class="x"> </span><span class="o">=</span><span class="x"> </span><span class="n">dial</span><span class="p">(</span><span class="n">d</span><span class="p">,</span><span class="x"> </span><span class="n">o</span><span class="p">)</span><span class="x">
+</span><span class="n">user</span><span class="o">.</span><span class="n">Current</span><span class="p">()</span><span class="x">
+</span></code></pre></div></div>
+
+<p>Now it’s time for a binary search - hop down into <code class="highlighter-rouge">dial</code>, insert calls to
+<code class="highlighter-rouge">user.Current()</code> in a bunch of locations, run the binary, find the location
+which crashed and iterate. The hypothesis at this point is that somehow, a
+previous syscall corrupts <em>something</em> for the syscall in <code class="highlighter-rouge">user.Current()</code>, and
+that we want to figure out the specific syscall that does it.</p>
+
+<p>Sounds tedious? Well, it was. The callpath we eventually figured out is (using
+<code class="highlighter-rouge">user.Current()</code> hits import path conflict bedrock at some point):</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/usr/local/go/src/net/fd_unix.go:118 (0xbdedd9)
+        (*netFD).connect: debug.PrintStack() // inserted for testing
+/usr/local/go/src/net/sock_posix.go:137
+        (*netFD).dial: if err := fd.connect(lsa, rsa, deadline); err != nil {
+# 9 stack frames omitted...
+/go/src/github.com/lib/pq/conn.go:88
+        defaultDialer.Dial: return net.Dial(ntw, addr)
+/go/src/github.com/lib/pq/conn.go:279
+        dial: return d.Dial(ntw, addr)
+/go/src/github.com/lib/pq/conn.go:238
+        DialOpen: cn.c, err = dial(d, o)
+</code></pre></div></div>
+
+<p>and we now have the following example, which requires a patch to the standard
+library but is good enough for someone else to investigate:</p>
+
+<div class="language-go highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">// boom_test.go</span><span class="x">
+</span><span class="k">package</span><span class="x"> </span><span class="n">cgo_static_boom</span><span class="x">
+
+</span><span class="k">import</span><span class="x"> </span><span class="p">(</span><span class="x">
+    </span><span class="s">"net"</span><span class="x">
+    </span><span class="s">"os/user"</span><span class="x">
+    </span><span class="s">"testing"</span><span class="x">
+</span><span class="p">)</span><span class="x">
+
+</span><span class="k">func</span><span class="x"> </span><span class="n">TestBoom</span><span class="p">(</span><span class="n">t</span><span class="x"> </span><span class="o">*</span><span class="n">testing</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="x"> </span><span class="p">{</span><span class="x">
+    </span><span class="n">conn</span><span class="p">,</span><span class="x"> </span><span class="n">err</span><span class="x"> </span><span class="o">:=</span><span class="x"> </span><span class="n">net</span><span class="o">.</span><span class="n">Dial</span><span class="p">(</span><span class="s">"tcp"</span><span class="p">,</span><span class="x"> </span><span class="s">"localhost:5423"</span><span class="p">)</span><span class="x">
+    </span><span class="n">user</span><span class="o">.</span><span class="n">Current</span><span class="p">()</span><span class="x">
+    </span><span class="n">t</span><span class="o">.</span><span class="n">Fatalf</span><span class="p">(</span><span class="s">"conn: %s, err: %s"</span><span class="p">,</span><span class="x"> </span><span class="n">conn</span><span class="p">,</span><span class="x"> </span><span class="n">err</span><span class="p">)</span><span class="x">
+</span><span class="p">}</span><span class="x">
+
+</span><span class="c">// cgo.go - without this, we don't get a static binary.</span><span class="x">
+</span><span class="c">// Presumably we could run with CGO_ENABLED=1 instead.</span><span class="x">
+</span><span class="k">package</span><span class="x"> </span><span class="n">cgo_static_boom</span><span class="x">
+
+</span><span class="k">import</span><span class="x"> </span><span class="s">"C"</span><span class="x">
+</span></code></pre></div></div>
+
+<p>and the following patch to <code class="highlighter-rouge">$(go env GOROOT)/src/net/fd_unix.go</code>:</p>
+
+<div class="language-diff highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="gu">@@ -114,6 +116,8 @@ func (fd *netFD) connect(la, ra syscall.Sockaddr, deadline time.Time) error {
+</span>         if err := fd.pd.WaitWrite(); err != nil {
+             return err
+         }
+<span class="gi">+        user.Current()
+</span></code></pre></div></div>
+
+<p>I was happy with this and stepped out for dinner, but
+<a href="https://github.com/tamird">@tamird</a> kept drilling to get rid of the stdlib
+patch. He threw together <code class="highlighter-rouge">net.Dial()</code> and <code class="highlighter-rouge">user.Current()</code> in the loop (to
+account for randomness), figured out that the test setup wasn’t needed and
+must’ve been delighted to arrive at the example at the beginning of this post.</p>
+
+<p><i id="fn_2">[2]</i>: of course, all the irrelevant calls are omitted here -
+we’re already hours into the game at this point.</p>
+
+<h2 id="disassembling-the-troops">(Dis)Assembling the troops</h2>
+
+<p>Fast-forward four days, two dozen comments and one closed issue
+<a href="https://github.com/golang/go/issues/13470">golang/go#13470</a> later, we’re a
+little wiser. After some back and forth on
+<a href="https://github.com/golang/go/issues/13470">#13470</a> about glibc versions and
+<code class="highlighter-rouge">LD_PRELOAD</code>, <a href="https://github.com/mwhudson">@mwhudson</a> posted some interesting
+findings. To trace what he did, we’re going to leave Go-land completely - we’re
+seeing a segfault from a library call, so that’s where our debugging has to
+take place. Time to dust off <code class="highlighter-rouge">gdb</code><sup><a href="golang-static-linking-bug.html#fn_3">3</a></sup>!</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ gdb ./boom
+(gdb) run
+Starting program: /go/src/github.com/tschottdorf/goplay/issue_13470/boom
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+[New Thread 0x7ffff7e4a700 (LWP 17)]
+[New Thread 0x7ffff7609700 (LWP 18)]
+[New Thread 0x7ffff6e08700 (LWP 19)]
+[New Thread 0x7ffff6607700 (LWP 20)]
+
+Program received signal SIGSEGV, Segmentation fault.
+[Switching to Thread 0x7ffff6607700 (LWP 20)]
+0x00007ffff5bbca5c in internal_getpwuid_r (ent=&lt;optimized out&gt;, errnop=&lt;optimized out&gt;,
+    buflen=&lt;optimized out&gt;, buffer=&lt;optimized out&gt;, result=&lt;optimized out&gt;, uid=&lt;optimized out&gt;)
+    at nss_compat/compat-pwd.c:961
+warning: Source file is more recent than executable.
+961		  while (isspace (*p))
+</code></pre></div></div>
+
+<p>This gives us a location in the code (<code class="highlighter-rouge">nss_compat/compat-pwd.c:961</code>) but it’s
+easy to see that it doesn’t really matter. <code class="highlighter-rouge">*p</code> is not the culprit (if it were,
+we’d see <code class="highlighter-rouge">0x0</code> and not <code class="highlighter-rouge">0x5e</code> as the illegal memory access) and in fact looking
+at the assembly code we see</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) disas
+Dump of assembler code for function _nss_compat_getpwuid_r:
+[...]
+   0x00007ffff5bbca44 &lt;+308&gt;:	callq  0x7ffff5bba3a0 &lt;__ctype_b_loc@plt&gt;
+   0x00007ffff5bbca49 &lt;+313&gt;:	mov    (%rax),%rcx
+   0x00007ffff5bbca4c &lt;+316&gt;:	jmp    0x7ffff5bbca54 &lt;_nss_compat_getpwuid_r+324&gt;
+   0x00007ffff5bbca4e &lt;+318&gt;:	xchg   %ax,%ax
+   0x00007ffff5bbca50 &lt;+320&gt;:	add    $0x1,%r15
+   0x00007ffff5bbca54 &lt;+324&gt;:	movzbl (%r15),%eax
+   0x00007ffff5bbca58 &lt;+328&gt;:	movsbq %al,%rdx
+=&gt; 0x00007ffff5bbca5c &lt;+332&gt;:	testb  $0x20,0x1(%rcx,%rdx,2)
+[...]
+</code></pre></div></div>
+
+<p>Since we’re looking at the expansion of <code class="highlighter-rouge">isspace()</code> and <code class="highlighter-rouge">testb</code> is bitwise
+comparison, <code class="highlighter-rouge">$0x20</code> strikes us as familiar (it’s a space); <code class="highlighter-rouge">%rcx</code> is populated
+from <code class="highlighter-rouge">__ctype_b_loc@plt</code> and <code class="highlighter-rouge">%rdx</code> is used as a type of offset. Remember that
+trying to read <code class="highlighter-rouge">0x5e</code> was causing the segfault? We have</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) info registers rcx rdx
+rcx            0x0	0
+rdx            0x72	114
+</code></pre></div></div>
+
+<p>and <code class="highlighter-rouge">0x1(%rcx,%rdx,2) = 0x1 + %rcx + 2*%rdx = 0x1 + 2*0x72 = 0x5e</code>. Clearly
+we’re looking at the right code here, and it’s odd that <code class="highlighter-rouge">%rcx</code> would be zero
+since <code class="highlighter-rouge">__ctype_b_loc</code> <a href="https://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-PDA/LSB-PDA/baselib---ctype-b-loc.html">should</a></p>
+
+<blockquote>
+  <p>[…] return a pointer into an array of characters in the current locale that
+contains characteristics for each character in the current character set.</p>
+</blockquote>
+
+<p>That’s clearly not what it did here. Let’s look at its code:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ objdump -D ./boom | grep -A 10 __ctype_b_loc
+000000000051de70 &lt;__ctype_b_loc&gt;:
+  51de70:	48 c7 c0 e0 ff ff ff 	mov    $0xffffffffffffffe0,%rax
+  51de77:	64 48 03 04 25 00 00 	add    %fs:0x0,%rax
+  51de7e:	00 00
+  51de80:	c3                   	retq
+  [...]
+</code></pre></div></div>
+
+<p>Whatever happens here, the <code class="highlighter-rouge">%fs</code> register is involved, and it <a href="http://stackoverflow.com/questions/6611346/how-are-the-fs-gs-registers-used-in-linux-amd64">appears that this
+register plays a role in thread-local storage</a>.
+Knowing that, we set a breakpoint just before the crash and investigate the
+registers, while also keeping an eye on thread context switches:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) br nss_compat/compat-pwd.c:961
+(gdb) run
+[...]
+Breakpoint 1, internal_getpwuid_r (ent=&lt;optimized out&gt;, errnop=&lt;optimized out&gt;,
+    buflen=&lt;optimized out&gt;, buffer=&lt;optimized out&gt;, result=&lt;optimized out&gt;, uid=&lt;optimized out&gt;)
+    at nss_compat/compat-pwd.c:961
+961		  while (isspace (*p))
+(gdb) disas
+[...]
+=&gt; 0x00007ffff5bbca54 &lt;+324&gt;:	movzbl (%r15),%eax
+   0x00007ffff5bbca58 &lt;+328&gt;:	movsbq %al,%rdx
+   0x00007ffff5bbca5c &lt;+332&gt;:	testb  $0x20,0x1(%rcx,%rdx,2)
+[...]
+(gdb) si 2 # step to &lt;+332&gt;
+0x00007ffff5bbca5c	961		  while (isspace (*p))
+(gdb) info register fs rcx rdx
+fs             0x63	99
+rcx            0x7ffff57449c0	140737311427008
+rdx            0x72	114
+(gdb) c
+Continuing.
+[Switching to Thread 0x7ffff7609700 (LWP 136)]
+
+Breakpoint 1, internal_getpwuid_r (ent=&lt;optimized out&gt;, errnop=&lt;optimized out&gt;,
+    buflen=&lt;optimized out&gt;, buffer=&lt;optimized out&gt;, result=&lt;optimized out&gt;, uid=&lt;optimized out&gt;)
+    at nss_compat/compat-pwd.c:961
+961		  while (isspace (*p))
+(gdb) si 2
+0x00007ffff5bbca5c	961		  while (isspace (*p))
+(gdb) info register fs rcx rdx
+fs             0x0	0
+rcx            0x0	0
+rdx            0x72	114
+(gdb) si
+
+Program received signal SIGSEGV, Segmentation fault.
+</code></pre></div></div>
+
+<p>Aha! When <code class="highlighter-rouge">%fs = 99</code>, apparently all is well, but in an iteration which has
+<code class="highlighter-rouge">%fs = 0</code>, all hell breaks loose. Note also that there’s a context switch
+right before the crash (<code class="highlighter-rouge">[Switching to Thread 0x7ffff7609700 (LWP 136)]</code>).</p>
+
+<p><i id="fn_3">[3]</i>: If you’re still following along, you’ll <em>really</em> want to
+use the <a href="golang-static-linking-bug.html#fn_1">Docker image</a> to avoid a lengthy setup.</p>
+
+<h2 id="resolution">Resolution</h2>
+
+<p>This seems to have less and less to do with Go. And indeed, it’s only a short
+time after that <a href="https://github.com/ianlancetaylor">ianlancetaylor</a> comes up
+with a <code class="highlighter-rouge">C</code> example which exhibits the same problem. This seems like good news,
+but filing the <a href="https://sourceware.org/bugzilla/show_bug.cgi?id=19341">upstream issue against glibc</a>,
+it becomes apparent that <code class="highlighter-rouge">glibc</code> supports “some static linking” but not all -
+in particular, threading is fairly broken and this has been known for a while
+and would be quite nontrivial to fix. Roughly what happens is the following:</p>
+
+<ul>
+  <li>Thread 1 calls out to the external shared library <code class="highlighter-rouge">libnss_compat</code> (via
+<code class="highlighter-rouge">user.Current()</code>). <code class="highlighter-rouge">libnss</code> wants to use thread-local storage (TLS), but it
+can’t use the calling thread’s TLS because we’re statically linked (so there
+is no dynamic symbol table).
+Instead, it uses its own set of TLS variables. But these are initialized at
+the time at which <code class="highlighter-rouge">libnss</code> is <strong>loaded</strong> (which is right now), and only on
+that thread.</li>
+  <li>Thread 2 calls into <code class="highlighter-rouge">libnss_compat</code> as well, but the initialization happened
+only on the first thread. <code class="highlighter-rouge">__ctype_b_loc</code> relies on this initialization, so
+it returns garbage. Boom.</li>
+</ul>
+
+<p>Summing up a comment by <a href="https://sourceware.org/bugzilla/show_bug.cgi?id=19341#c1">Carlos O’Donell</a>,
+the bug is likely to live forever and hard to fix; while you <em>can</em> link
+statically against glibc, it’s really nothing you should ever find yourself
+doing. At least not if you’re using threads.</p>
+
+<h1 id="conclusion">Conclusion</h1>
+
+<p>Linking statically against <code class="highlighter-rouge">glibc</code> has proven to be an insane idea, but it’s
+surprising that this was apparently news for everyone up to (but not including)
+the glibc bug tracker.</p>
+
+<p>We figured out that we can <a href="https://github.com/cockroachdb/cockroach/pull/3343">get a less obviously ludicrous static build</a>
+by substituting <code class="highlighter-rouge">glibc</code> for <a href="http://www.musl-libc.org">musl-libc</a>, but that
+needs careful benchmarking and testing (in particular, we instantly had issues
+with the <a href="https://github.com/cockroachdb/cockroach/pull/3413">DNS resolver</a>).</p>
+
+<p>At the end of the day, we decided that there were only diminishing returns to
+be had by linking a completely static binary. What really matters to us is not
+having non-standard dependencies - having <code class="highlighter-rouge">glibc</code> available is a bit of a drag
+when deploying on minimal systems (think containers) but is otherwise
+standard. So, at least for the time being, we’ll distributed an image that
+<a href="https://github.com/cockroachdb/cockroach/pull/3412">only links against glibc dynamically</a>.</p>
+
+<p>In a recent post about the <a href="http://www.cockroachlabs.com/blog/the-cost-and-complexity-of-cgo/">cost and complexity of cgo</a>
+we warned that cgo comes with a more intricate build process and the occasional
+need to take debugging beyond the realms Go. This bug sure goes out of its way
+to prove these points.</p>
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+      <li>
+        <h3>
+          <a href="gmail-filter-inbox-zero.html">
+            Using Gmail like Inbox (Zero)
+            <small>29 Dec 2018</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="single-decree-paxos-tla-compare-and-swap.html">
+            Paxos on Steroids and a Crash Course in TLA+
+            <small>07 Apr 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="if-its-not-paxos-its-probably-wrong-gryadka.html">
+            Gryadka is not Paxos, so it's probably wrong (RETRACTED)
+            <small>23 Mar 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+  </ul>
+</div>
+
+
+      
+  <!-- Add Disqus comments. -->
+  <div id="disqus_thread"></div>
+  <script type="text/javascript">
+    var disqus_shortname = 'tschottdorf'; // required: replace example with your forum shortname
+    (function() {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+
+
+      <div class="footer">
+        <p>
+          &copy; 2018. All rights reserved.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Tobias Grieger &middot; Stuff I Ran Into
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="../public/css/poole.css">
+  <link rel="stylesheet" href="../public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://tbg.github.io/public/apple-touch-icon-144-precomposed.png">
+                                 <link rel="shortcut icon" href="../public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="../atom.xml">
+</head>
+
+  <script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+     (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+       m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+         })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-56656281-1', 'auto');
+    ga('send', 'pageview');
+
+</script>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+        <h3 class="masthead-title">
+          <a href="../index.html" title="Home">Tobias Grieger</a>
+
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="../about/index.html">About</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="../archive/index.html">Archive</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="../atom.xml">Feed</a></small>
+          
+
+        </h3>
+      </div>
+
+      <div class="posts">
+  
+  <div class="post">
+    <h1 class="post-title">
+      <a href="../rust-docs-circle-ci.html">
+        Rust and automatically generating docs on CircleCI
+      </a>
+    </h1>
+
+    <span class="post-date">22 Aug 2015</span>
+
+    <p>After some (private) dabbling around with <a href="http://rust-lang.org">Rust</a>, I now
+have the first public toy project: <a href="https://crates.io/crates/hlc">hlc-rs</a>, a
+<a href="http://muratbuffalo.blogspot.com/2014/07/hybrid-logical-clocks.html">hybrid logical clock</a>.</p>
+
+<p>I’m going to omit the customary ode of joy to the Rust language, tooling, and <a href="https://github.com/nrc/rustfmt/issues/197">the community</a> and only share a small snippet
+that I hacked together to automatically publish the <a href="https://doc.rust-lang.org/book/documentation.html">auto-generated documentation</a> via <a href="https://pages.github.com">github pages</a>
+after a successful <code class="highlighter-rouge">master</code> test run on <a href="https://circleci.com">CircleCI</a>.</p>
+
+<h1 id="step-1">Step 1</h1>
+
+<p>I’m assuming the repository root is your crate’s root directory. I’m using this
+<code class="highlighter-rouge">circle.yml</code>:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">dependencies</span><span class="pi">:</span>
+  <span class="na">post</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">git config --global user.email my@email.com</span>
+    <span class="pi">-</span> <span class="s">git config --global user.name "My Name"</span>
+    <span class="pi">-</span> <span class="s">curl -sf -L https://static.rust-lang.org/rustup.sh | sh /dev/stdin --channel=nightly --yes</span>
+<span class="na">test</span><span class="pi">:</span>
+  <span class="na">override</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">cargo test</span>
+
+<span class="na">deployment</span><span class="pi">:</span>
+  <span class="na">docs</span><span class="pi">:</span>
+    <span class="na">branch</span><span class="pi">:</span> <span class="s">master</span>
+    <span class="na">commands</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">cargo doc &amp;&amp; git fetch origin gh-pages &amp;&amp; git checkout gh-pages &amp;&amp; (git mv doc doc-$(git describe --always master^) || rm -rf doc) &amp;&amp; mv target/doc/ ./doc &amp;&amp; git add -A ./doc* &amp;&amp; git commit -m 'update docs' &amp;&amp; git push origin gh-pages</span>
+</code></pre></div></div>
+
+<p>Pretty standard (also, likely suboptimal - but that’s fine for a project that
+doesn’t see a lot of traffic). The notable part is the last one:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Generate the documentation.</span>
+cargo doc <span class="se">\</span>
+  <span class="o">&amp;&amp;</span> git fetch origin gh-pages <span class="se">\ </span><span class="c"># make sure we have the branch</span>
+  <span class="o">&amp;&amp;</span> git checkout gh-pages <span class="se">\ </span>    <span class="c"># check it out</span>
+  <span class="c"># If there's a `doc` directory, move it away or delete it if that fails.</span>
+  <span class="o">&amp;&amp;</span> <span class="o">(</span>git mv doc doc-<span class="k">$(</span>git describe <span class="nt">--always</span> master^<span class="k">)</span> <span class="o">||</span> rm <span class="nt">-rf</span> doc<span class="o">)</span> <span class="se">\</span>
+  <span class="c"># Move the new docs in their place.</span>
+  <span class="o">&amp;&amp;</span> mv target/doc/ ./doc <span class="se">\</span>
+  <span class="c"># Add both the old docs and the new one.</span>
+  <span class="o">&amp;&amp;</span> git add <span class="nt">-A</span> ./doc<span class="k">*</span> <span class="se">\</span>
+  <span class="c"># Commit, duh.</span>
+  <span class="o">&amp;&amp;</span> git commit <span class="nt">-m</span> <span class="s1">'update docs'</span> <span class="se">\</span>
+  <span class="c"># Push new commit.</span>
+  <span class="o">&amp;&amp;</span> git push origin gh-pages
+</code></pre></div></div>
+
+<p>For setting this up, three simple steps are needed:</p>
+
+<ul>
+  <li>add the project to <a href="http://circleci.com">CircleCI</a>,</li>
+  <li><a href="https://circleci.com/docs/adding-read-write-deployment-key">add read-write deploy key for GitHub and CircleCI</a>, and</li>
+  <li>
+    <p>push an initial <code class="highlighter-rouge">gh-pages</code> branch:</p>
+
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git checkout <span class="nt">--orphan</span>
+git reset
+git commit <span class="nt">--allow-empty</span> <span class="nt">-m</span> <span class="s1">'initial commit'</span>
+vi circle.yml <span class="c"># see below</span>
+git push origin gh-pages
+</code></pre></div>    </div>
+
+    <p>where <code class="highlighter-rouge">circle.yml</code> is a dummy (so that the branch doesn’t give you test failures):</p>
+
+    <div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">test</span><span class="pi">:</span>
+  <span class="na">override</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">echo "noop"</span>
+</code></pre></div>    </div>
+  </li>
+</ul>
+
+<p>Of course, the same easily works on other CI platforms and possibly there are
+<a href="https://www.reddit.com/r/rust/comments/3e1xgy/how_do_you_folks_autogenerate_the_doc_pages_for/">other ways to do it</a>.</p>
+
+<p>That’s it already! Now <a href="https://tschottdorf.github.io/hlc-rs/doc/hlc/">documentation like this</a> should be auto-generated for you with the next CI run on <code class="highlighter-rouge">master</code>.</p>
+
+  </div>
+  
+</div>
+
+<div class="pagination">
+  
+    <a class="pagination-item older" href="../page11/index.html">Older</a>
+  
+  
+    
+      <a class="pagination-item newer" href="../page9/index.html">Newer</a>
+    
+  
+</div>
+<h4>Recent posts:</h4>
+<ul class="posts">  
+	  
+	   <li>  
+		   <span>29 Dec 2018</span> &raquo;  
+		   <a href="../gmail-filter-inbox-zero.html">  
+		   Using Gmail like Inbox (Zero)</a>  
+	   </li>  
+	  
+	   <li>  
+		   <span>07 Apr 2017</span> &raquo;  
+		   <a href="../single-decree-paxos-tla-compare-and-swap.html">  
+		   Paxos on Steroids and a Crash Course in TLA+</a>  
+	   </li>  
+	  
+	   <li>  
+		   <span>23 Mar 2017</span> &raquo;  
+		   <a href="../if-its-not-paxos-its-probably-wrong-gryadka.html">  
+		   Gryadka is not Paxos, so it's probably wrong (RETRACTED)</a>  
+	   </li>  
+	  
+	   <li>  
+		   <span>22 Jan 2017</span> &raquo;  
+		   <a href="../sabbatical-linux-x64-exploits.html">  
+		   Sabbatical Reading List: Linux x64 Exploits</a>  
+	   </li>  
+	  
+	   <li>  
+		   <span>20 Jan 2017</span> &raquo;  
+		   <a href="../sabbatical-feynman-lectures.html">  
+		   Sabbatical Reading List: The Feynman Lectures</a>  
+	   </li>  
+	  
+</ul>
+
+
+      
+
+
+
+      <div class="footer">
+        <p>
+          &copy; 2018. All rights reserved.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

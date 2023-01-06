@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Golang: Statically linked binary and tests for Cockroach &middot; Tobias Grieger
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="public/css/poole.css">
+  <link rel="stylesheet" href="public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://tbg.github.io/public/apple-touch-icon-144-precomposed.png">
+                                 <link rel="shortcut icon" href="public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="atom.xml">
+</head>
+
+  <script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+     (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+       m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+         })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-56656281-1', 'auto');
+    ga('send', 'pageview');
+
+</script>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+        <h3 class="masthead-title">
+          <a href="index.html" title="Home">Tobias Grieger</a>
+
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="about/index.html">About</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="archive/index.html">Archive</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="atom.xml">Feed</a></small>
+          
+
+        </h3>
+      </div>
+
+      <div class="post">
+  <h1 class="post-title">Golang: Statically linked binary and tests for Cockroach</h1>
+  <span class="post-date">10 Nov 2014</span>
+  <p><em>At <a href="https://github.com/cockroachdb/cockroach">Cockroach</a>, we write a lot of tests, which is great and absolutely necessary: Building a CP (<a href="http://en.wikipedia.org/wiki/CAP_theorem">consistent and partition-tolerant</a>) distributed system (like <a href="https://github.com/cockroachdb/cockroach">Cockroach</a>) without getting everything exactly right just gives you another system without any guarantees. Below I’ll describe what I did to build both our main binary and our tests (!) statically, and how far I got.</em></p>
+
+<p><strong>Edit (04/11/2015)</strong>: Ever since Go 1.4 came around, this article has been slightly outdated. A change in 1.4 altered the behaviour of the <code class="highlighter-rouge">-a</code> flag such that it would not rebuild the standard library. Consequently, the <code class="highlighter-rouge">netgo</code> tag did not have the desired effect any more. There are various discussions about this to be found online, and luckily there’s an easy fix: just add the <code class="highlighter-rouge">-installsuffix netgo</code> parameter to your go build flags. That causes the packages to be built in <code class="highlighter-rouge">${GOROOT}/pkg/&lt;arch&gt;_netgo</code> instead, causing the <code class="highlighter-rouge">-a</code> flag to behave as it should.</p>
+
+<p><strong>TL;DR: <code class="highlighter-rouge">-a</code> is surprisingly useful.</strong></p>
+
+<p>Our codebase is mostly <a href="http://golang.org/">Go</a>, but with a number of references to C++. The result of a successful build is a single binary, and we want users to be able to deploy this binary right away without having to setup a build toolchain or making sure that they have the right libs we link against.</p>
+
+<p>In a nutshell, we want a statically linked binary. And <strong>even more</strong>, we want to compile the <strong>tests</strong> as statically linked binaries so that they can be run in their final deploy environment. It is this last part that makes things a bit more complex.</p>
+
+<h2 id="a-lot-of-go-links-dynamically">A lot of Go links dynamically</h2>
+<p>Often, you hear complaints about Go binary sizes along with the explanation that <em>it’s statically linked, always</em>. We’d be happy to have it that way, but usually only <em>simple</em> Go programs are statically linked - they can use the gc tool chain (5l, 6l, 8l), and even just using the <code class="highlighter-rouge">net</code> package requires a special build tag (-tags netgo), or you end up with a dynamically linked binary.</p>
+
+<p>And once you’re reaching out to the C/C++ world via CGO, <code class="highlighter-rouge">go build</code> will definitely use the external linker, and you’re very likely ending up with a <strong>dynamically linked</strong> binary.</p>
+
+<p>At <a href="https://github.com/cockroachdb/cockroach">Cockroach</a>, we certainly have such dependencies: Our own C++ libs used for low-level stuff, protocol buffers and <a href="http://rocksdb.org/">RocksDB</a>, a more performant fork of <a href="http://en.wikipedia.org/wiki/LevelDB">Google’s LevelDB</a>. Those dependencies offer static libraries, of course, so when I started this I was reasonably optimistic.</p>
+
+<h3 id="whats-being-linked">What’s being linked?</h3>
+<p>Let’s start with the build process that we use when developing - we don’t care about the way it’s linked, and consequently we (more or less) run</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ go build -i -o cockroach
+$ ldd cockroach
+linux-vdso.so.1 =&gt;  (0x00007fffd6ffe000)
+libstdc++.so.6 =&gt; /usr/lib/x86_64-linux-gnu/libstdc++.so.6 (0x00002ab74bab6000)
+libm.so.6 =&gt; /lib/x86_64-linux-gnu/libm.so.6 (0x00002ab74bdba000)
+librt.so.1 =&gt; /lib/x86_64-linux-gnu/librt.so.1 (0x00002ab74c0c0000)
+libpthread.so.0 =&gt; /lib/x86_64-linux-gnu/libpthread.so.0 (0x00002ab74c2c8000)
+libgcc_s.so.1 =&gt; /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00002ab74c4e6000)
+libc.so.6 =&gt; /lib/x86_64-linux-gnu/libc.so.6 (0x00002ab74c6fc000)
+/lib64/ld-linux-x86-64.so.2 (0x00002ab74b891000)
+</code></pre></div></div>
+<p>Yep, as expected, a lot of external libraries are being referenced.</p>
+
+<h3 id="statically-first-try">Statically, first try</h3>
+<p>Some light googling brings up <a href="http://blog.hashbangbash.com/2014/04/linking-golang-statically/">this article</a>, so we try this next:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ go build --ldflags '-extldflags "-static"'
+...
+In function `std::tr1::__detail::_Prime_rehash_policy::_M_need_rehash(unsigned long, unsigned long, unsigned long) const':
+/usr/include/c++/4.8/tr1/hashtable_policy.h:469: undefined reference to `ceilf'
+/usr/include/c++/4.8/tr1/hashtable_policy.h:475: undefined reference to `ceilf'
+/home/tobias/Code/Go/src/github.com/cockroachdb/cockroach/_vendor/usr/lib/libprotobuf.a(descriptor.o):
+In function `lower_bound&lt;long unsigned int const*, float&gt;':
+...
+</code></pre></div></div>
+
+<p><em>Ouch</em>. Well, thinking about it, we probably have to tell the linker some of the libs it should link against.</p>
+
+<h3 id="adding-libraries">Adding libraries</h3>
+<p><code class="highlighter-rouge">ceilf</code> sounds mathy, so let’s add the <code class="highlighter-rouge">math</code> library (<code class="highlighter-rouge">-lm</code>):</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ go build --ldflags '-extldflags "-lm -static"'
+...
+/usr/include/c++/4.8/tr1/hashtable_policy.h:384: undefined reference to `std::tr1::__detail::__prime_list'
+/home/tobias/Code/Go/src/github.com/cockroachdb/cockroach/_vendor/usr/lib/libprotobuf.a(dynamic_message.o): In function `lower_bound&lt;long unsigned int const*, float&gt;':
+/usr/include/c++/4.8/bits/stl_algobase.h:965: undefined reference to `std::tr1::__detail::__prime_list'collect2: error: ld returned 1 exit status
+/usr/local/go/pkg/tool/linux_amd64/6l: running gcc failed: unsuccessful exit status 0x100
+make: *** [build] Error 2
+</code></pre></div></div>
+<p>Well. The math errors are gone, but there’s still some other stuff. Looks like it wants to be linked against stdlib? We can add that statically via <code class="highlighter-rouge">-lstdc++</code>. Another try:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ go build --ldflags '-extldflags "-lm -lstdc++ -static"
+# github.com/cockroachdb/cockroach
+...00003.o: In function `_cgo_0db69e1b5445_Cfunc_getpwnam_r':
+(.text+0x58): warning: Using 'getpwnam_r' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+...00003.o: In function `_cgo_0db69e1b5445_Cfunc_mygetpwuid_r':
+.../go/src/pkg/os/user/lookup_unix.go:27: warning: Using 'getpwuid_r' in statically
+linked applications requires at runtime the shared libraries from the glibc version used for linking
+...000001.o: In function `_cgo_14616c423265_Cfunc_freeaddrinfo':
+.../go/src/pkg/net/cgo_unix.go:97: warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+$ echo $?
+0
+ldd cockroach
+     not a dynamic executable
+</code></pre></div></div>
+
+<h3 id="success-oh-wait">Success! …oh wait.</h3>
+
+<p><em>That wasn’t so hard. Some warnings remain, but we have an executable.</em></p>
+
+<p>Fast forward a little: It turns out that the binary created in this way has no functional networking capabilities. Looking at the last warning about <code class="highlighter-rouge">getaddrinfo</code>, this seems to make sense - <code class="highlighter-rouge">getaddrinfo</code> supposedly tries to get to glibc at runtime, which isn’t available and will hence return an error. If it can’t connect anywhere, it’s probably not such a great fit for a <strong>distributed</strong> database.</p>
+
+<p>Luckily, Go has recently (in 1.2) acquired a new build tag <code class="highlighter-rouge">netgo</code> which addresses precisely this issue:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>The net package requires cgo by default because the host operating system must in general mediate network call setup. On some systems, though, it is possible to use the network without cgo, and useful to do so, for instance to avoid dynamic linking. The new build tag netgo (off by default) allows the construction of a net package in pure Go on those systems where it is possible.
+</code></pre></div></div>
+
+<p>So this is exactly up our alley, and since we’re just fooling around at this point, let’s not think about whether going down this road will impact networking performance negatively. We’ve come too far to stop.</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ go build -tags netgo --ldflags '-extldflags "-lm -lstdc++ -static"' -i -o cockroach
+...
+exact same stuff as before
+</code></pre></div></div>
+
+<p>Yep, exact same stuff. And exact same problems. In particular, the warning about <code class="highlighter-rouge">getaddrinfo</code> is still there, and that’s an indicator that networking still leaves Go and will fail for us.</p>
+
+<h3 id="the-magic-flag">The magic flag</h3>
+<p>The next step I found out about the hard way: By trying out a lot of random things.
+My solution: add the <code class="highlighter-rouge">-a</code> flag to <code class="highlighter-rouge">go build</code>:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-a  force rebuilding of packages that are already up-to-date.
+</code></pre></div></div>
+
+<p><strong>Yes. Adding this tag suddenly causes the <code class="highlighter-rouge">-tags netgo</code> parameters to do their job.</strong> That’s all I can tell you.</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>go build -a -tags netgo --ldflags '-extldflags "-lm -lstdc++ -static"' -i -o cockroach
+# github.com/cockroachdb/cockroach
+/var/tmp/go-link-8PWBSa/000002.o: In function `mygetpwuid_r':
+/usr/local/go/src/pkg/os/user/lookup_unix.go:72: warning: Using 'getpwnam_r' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/var/tmp/go-link-8PWBSa/000002.o: In function `_cgo_0db69e1b5445_Cfunc_mygetpwuid_r':
+/usr/local/go/src/pkg/os/user/lookup_unix.go:27: warning: Using 'getpwuid_r' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+</code></pre></div></div>
+<p>The warnings left above tell us that we won’t be able to use the <code class="highlighter-rouge">os/user</code> package to look up system user accounts. I’ve checked manually that those calls simply <em>fail</em> and don’t <em>segfault</em>, so <em>whatever</em>. Of course they pop up with every build, so ideally we want to get rid of this eventually, but right now let’s continue down the road.</p>
+
+<h3 id="intermediate-result">Intermediate result</h3>
+<p>Ok, we’ve got a binary that seems to be working. I can put it into a <a href="http://docker.io/">Docker container</a> based on <a href="http://www.busybox.net/">BusyBox</a>, start a couple of nodes and they can connect to each other - proving that networking is <em>at least kind of</em> working.</p>
+
+<p>But, we’ve seen above that getting a binary doesn’t mean that binary is worth anything - so let’s get to doing the same for tests!</p>
+
+<h3 id="statically-linked-tests---surprise">Statically linked tests - surprise!</h3>
+<p>Let’s use what we’ve learnt about the build process and hope for the best. We are building the tests for Cockroach’s <code class="highlighter-rouge">gossip</code> package, and run</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ go test -a -tags netgo -ldflags '-extldflags "-lm -lstdc++ -static"' -c "./gossip" -logtostderr -timeout 10s
+$ ldd gossip.test
+linux-vdso.so.1 =&gt;  (0x00007fff4d5fe000)
+libpthread.so.0 =&gt; /lib/x86_64-linux-gnu/libpthread.so.0 (0x00002aca89834000)
+libc.so.6 =&gt; /lib/x86_64-linux-gnu/libc.so.6 (0x00002aca89a52000)
+/lib64/ld-linux-x86-64.so.2 (0x00002aca8960f000)
+</code></pre></div></div>
+
+<p><strong>Oh, come on</strong>. So apparently you can tell the linker what you want, you might still end up with a <em>dynamically linked binary</em>, at least when compiling tests. Presumably, Go internally enriches your stuff with its test runner, and something you don’t want happens.</p>
+
+<p>You <em>could</em> add the <code class="highlighter-rouge">-x</code> flag to see exactly what the Go toolchain does, but, well, I’ve tried that and I couldn’t whole-heartedly tell you that it has improved my understanding of things.</p>
+
+<p>The second instinct: Slap some libs on top of it - adding a <code class="highlighter-rouge">-lpthread</code> to get <code class="highlighter-rouge">libpthread</code> could be fun. But, libpthread is part of GLIBC, so apparently that’s something you oughtn’t be doing anyways. Luckily, you don’t have to, it won’t change a single thing. There’s one thing that does, however:</p>
+
+<h2 id="disabling-cgo-where-not-required">Disabling CGO where not required</h2>
+<p>I’ve mentioned previously that in this project, we’re using CGO to reach out to C++-Land. Interestingly, there’s something there that saves the day for us: A couple of packages end up compiling their tests statically if we do it as above, and a couple won’t.</p>
+
+<p>Fortunately, those packages that actually <strong>need</strong> CGO end up statically linked, and only packages that <strong>don’t require it</strong> have the issue above. So, time for a hack, straight from our <a href="https://github.com/cockroachdb/cockroach/blob/7e452c2a8a9537e4ba5906ccc8a54c50b06885fb/Makefile">Makefile</a>:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">for </span>p <span class="k">in </span>github.com/cockroachdb/cockroach/gossip<span class="p">;</span> <span class="k">do</span> <span class="se">\</span>
+  <span class="nv">NAME</span><span class="o">=</span><span class="k">$(</span>basename <span class="s2">"</span><span class="nv">$p</span><span class="s2">"</span><span class="k">)</span><span class="p">;</span> <span class="se">\</span>
+  <span class="nv">OUT</span><span class="o">=</span><span class="s2">"</span><span class="nv">$NAME</span><span class="s2">.test"</span><span class="p">;</span> <span class="se">\</span>
+  <span class="nv">DIR</span><span class="o">=</span><span class="k">$(</span>go list <span class="nt">-f</span> <span class="se">\{\{</span>.Dir<span class="se">\}\}</span> ./...<span class="nv">$NAME</span><span class="k">)</span><span class="p">;</span> <span class="se">\</span>
+  go <span class="nb">test</span>  <span class="nt">-a</span> <span class="nt">-tags</span> netgo <span class="nt">-ldflags</span> <span class="s1">'-extldflags "-lm -lstdc++ -static"'</span> <span class="nt">-c</span> <span class="s2">"</span><span class="nv">$p</span><span class="s2">"</span> <span class="nt">-logtostderr</span> <span class="nt">-timeout</span> 10s <span class="o">||</span> <span class="nb">break</span><span class="p">;</span> <span class="se">\</span>
+  <span class="k">if</span> <span class="o">[</span> <span class="nt">-f</span> <span class="s2">"</span><span class="nv">$OUT</span><span class="s2">"</span> <span class="o">]</span><span class="p">;</span> <span class="k">then</span> <span class="se">\</span>
+    <span class="k">if</span> <span class="o">[</span> <span class="o">!</span> <span class="nt">-z</span> <span class="s2">"1"</span> <span class="o">]</span> <span class="o">&amp;&amp;</span> ldd <span class="s2">"</span><span class="nv">$OUT</span><span class="s2">"</span> <span class="o">&gt;</span> /dev/null<span class="p">;</span> <span class="k">then</span> <span class="se">\</span>
+    2&gt;&amp;1 <span class="nb">echo</span> <span class="s2">"</span><span class="nv">$NAME</span><span class="s2">: rebuilding with CGO_ENABLED=0 to get static binary..."</span><span class="p">;</span> <span class="se">\</span>
+    <span class="nv">CGO_ENABLED</span><span class="o">=</span>0 go <span class="nb">test</span>  <span class="nt">-a</span> <span class="nt">-tags</span> netgo <span class="nt">-ldflags</span> <span class="s1">'-extldflags "-lm -lstdc++ -static"'</span> <span class="nt">-c</span> <span class="s2">"</span><span class="nv">$p</span><span class="s2">"</span> <span class="nt">-logtostderr</span> <span class="nt">-timeout</span> 10s <span class="o">||</span> <span class="nb">break</span><span class="p">;</span> <span class="se">\</span>
+    <span class="k">fi</span><span class="p">;</span> <span class="se">\</span>
+    mv <span class="s2">"</span><span class="nv">$OUT</span><span class="s2">"</span> <span class="s2">"</span><span class="nv">$DIR</span><span class="s2">"</span> <span class="o">||</span> <span class="nb">break</span><span class="p">;</span> <span class="se">\</span>
+  <span class="k">fi</span> <span class="se">\</span>
+<span class="k">done</span>
+</code></pre></div></div>
+
+<p>At this point, I couldn’t say I’m exactly happy with it, but <strong>at least I got what I wanted</strong>. Statically linked test binaries that I can slap anywhere the cockroach binary would run.</p>
+
+<h2 id="race-tests">Race tests?</h2>
+
+<p>Nope. <code class="highlighter-rouge">runtime/race</code> won’t build for those tests that require <code class="highlighter-rouge">CGO_ENABLED=0</code> above, such as our <code class="highlighter-rouge">gossip</code> package. You end up with</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gossip: rebuilding with CGO_ENABLED=0 to get static binary...
+# testmain
+runtime/race(.text): undefined: __libc_malloc
+runtime/race(.text): undefined: getuid
+runtime/race(.text): undefined: pthread_self
+runtime/race(.text): undefined: madvise
+</code></pre></div></div>
+
+<p>so I think this is where we can’t go further at this point.</p>
+
+<h3 id="summary">Summary</h3>
+<p>I basically got what I wanted but at the expense of a few hacks:</p>
+
+<ul>
+  <li>use <code class="highlighter-rouge">-a</code> flag for its desired (but mystery) side-effect</li>
+  <li>ignore warnings from package <code class="highlighter-rouge">os/user</code> - user lookups will always fail</li>
+  <li>have to use <code class="highlighter-rouge">-tags netgo</code> - performance?</li>
+  <li>get lucky with CGO_ENABLED=0</li>
+</ul>
+
+<p>It seems to me that building static tests isn’t something that was given a lot of thought; especially for race tests this seems fairly hard to get.</p>
+
+<p>And that concludes this survey of building things statically for a non-trival Go project.
+The state of things described in this post is contained in <a href="https://github.com/cockroachdb/cockroach/blob/7e452c2a8a9537e4ba5906ccc8a54c50b06885fb/Makefile">Makefile@7e452</a> and will likely see a lot of changes over time.</p>
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+      <li>
+        <h3>
+          <a href="gmail-filter-inbox-zero.html">
+            Using Gmail like Inbox (Zero)
+            <small>29 Dec 2018</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="single-decree-paxos-tla-compare-and-swap.html">
+            Paxos on Steroids and a Crash Course in TLA+
+            <small>07 Apr 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="if-its-not-paxos-its-probably-wrong-gryadka.html">
+            Gryadka is not Paxos, so it's probably wrong (RETRACTED)
+            <small>23 Mar 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+  </ul>
+</div>
+
+
+      
+  <!-- Add Disqus comments. -->
+  <div id="disqus_thread"></div>
+  <script type="text/javascript">
+    var disqus_shortname = 'tschottdorf'; // required: replace example with your forum shortname
+    (function() {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+
+
+      <div class="footer">
+        <p>
+          &copy; 2018. All rights reserved.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>

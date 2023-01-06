@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Distributed Consensus In Practice &middot; Tobias Grieger
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="public/css/poole.css">
+  <link rel="stylesheet" href="public/css/syntax.css">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://tbg.github.io/public/apple-touch-icon-144-precomposed.png">
+                                 <link rel="shortcut icon" href="public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="atom.xml">
+</head>
+
+  <script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+     (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+       m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+         })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-56656281-1', 'auto');
+    ga('send', 'pageview');
+
+</script>
+
+
+  <body>
+
+    <div class="container content">
+      <div class="masthead">
+        <h3 class="masthead-title">
+          <a href="index.html" title="Home">Tobias Grieger</a>
+
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="about/index.html">About</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="archive/index.html">Archive</a></small>
+          
+              &nbsp;&nbsp;&nbsp;<small><a href="atom.xml">Feed</a></small>
+          
+
+        </h3>
+      </div>
+
+      <div class="post">
+  <h1 class="post-title">Distributed Consensus In Practice</h1>
+  <span class="post-date">24 Jul 2016</span>
+  <p><em>This post originally appeared on the <a href="https://blog.cockroachlabs.com">Cockroach Labs blog</a> as <a href="https://www.cockroachlabs.com/blog/consensus-made-thrive/">Consensus, Made Thrive</a>.</em></p>
+
+<p>When you write data to <a href="https://github.com/cockroachdb/cockroach">CockroachDB</a> (for example, if you insert a row into a table through the <a href="https://www.cockroachlabs.com/docs/use-the-built-in-sql-client.html">SQL client</a>), we take care of replication for you. To do this, we use a <a href="https://en.wikipedia.org/wiki/Consensus_(computer_science)">consensus protocol</a> – an algorithm which makes sure that your data is safely stored on multiple machines, and that those machines agree on the current state even if some of them are temporarily disconnected.</p>
+
+<p>In this post, I will give an overview of common implementation concerns and how we address these concerns in CockroachDB. Then I will abandon these earthly constraints and explore how we could improve consensus algorithms. Specifically, what would it take to make them faster?</p>
+
+<h2 id="consensus-algorithms-applied">Consensus Algorithms Applied</h2>
+
+<p>Consensus algorithms are inherently distributed, and the problem they solve is fundamental to any piece of software which wants to keep a consistent state across multiple machines. After several decades, the body of research on them seemingly presents you with a variety of implementations options to choose from. However, as pointed out in <a href="http://research.google.com/archive/paxos_made_live.html">Google’s “Paxos Made Live”</a>, <em>using consensus algorithms in the real world is not quite as simple</em>: the things that matter most for real implementations are often mere side notes in their respective papers.</p>
+
+<p>A typical consensus algorithm accepts operations from a client, and puts them in an ordered log (which in turn is kept on each of the replicas), acknowledging an operation as successful to the client once it is known that the operation has been persisted in a majority of the replicas’ logs. Each of the replicas in turn execute operations from that log in order, advancing their state. This means that at a fixed point in time, the replicas may not be identical, but they are advancing through the same log (meaning that if you give them time to all catch up, they will be in the same state) – the best you can hope for in a distributed system.</p>
+
+<h2 id="typical-concerns-when-implementing-a-consensus-algorithm">Typical Concerns When Implementing a Consensus Algorithm:</h2>
+
+<p>Log Truncation: Having all of the operations in an ordered log is fine, but that log can’t grow forever! When all replicas have caught up, older log entries should be discarded.
+Snapshotting: Since the log can’t be kept forever, after an extended period of downtime of a replica, there must be an alternative way of catching it up. The only option is transferring a snapshot of the data and a log position from which to resume.
+Membership Changes: These are very tricky to get right. As we add a replica to the group, the size of a majority changes. A lot of decisions have to be made: which majority size is active while the membership changes? Does the new replica have any say in the group while it’s being added? When does it receive a snapshot? Can a snapshot be sent before the membership change is carried out, to minimize the impact of the change? Removal is similarly iffy, and the consensus group is typically more vulnerable while the process is ongoing.
+Replay Protection: commands proposed by a client may be executed multiple times (or never, depending on the implementation). While one client proposal ideally leads to exactly one executed command in almost all cases, <a href="http://bravenewgeek.com/you-cannot-have-exactly-once-delivery/">general exactly-once delivery is impossible in a distributed system</a>. In practice, this means keeping state about already executed commands, or even better, using only idempotent commands.
+Read Leases: when using a vanilla consensus protocol, all read operations of the replicated state have to go through that consensus protocol, or they may read stale data<sup>[1]</sup>, which is a consistency violation. In many applications, the vast majority of operations are reads, and going through consensus for those can be prohibitively expensive.
+These and many others (which aren’t as readily summarized) make it hard to work an instance of a consensus protocol into a real application, let alone thousands of them.</p>
+
+<h2 id="raft-made-live">“Raft Made Live”</h2>
+
+<p>At CockroachDB, we have most of the above concerns sufficiently covered. The author of Raft, our consensus protocol of choice, did a pretty good job at providing comprehensive instructions for much of the above. We truncate our log appropriately, regardless of whether all replicas <a href="https://github.com/cockroachdb/cockroach/pull/7438">are up or not</a>. We send snapshots when appropriate, and soon we will also send <a href="https://github.com/cockroachdb/cockroach/pull/7468">pre-emptive snapshots</a> during membership changes. We implement replay protection using <a href="https://en.wikipedia.org/wiki/Multiversion_concurrency_control">MVCC</a> and a <a href="https://github.com/cockroachdb/cockroach/pull/6961">consensus-level component</a>. And, last but not least, we have a stable leading replica which gets to serve reads locally.</p>
+
+<p>That’s all fine and well, but there are various areas of improvement. Let’s leave behind the realm of what’s been implemented (at least in CockroachDB, and probably almost everywhere else) and talk about what should be possible in an ideal world.</p>
+
+<h2 id="consensus-is-like-caviar-too-expensive-to-splurge-on">Consensus is like caviar: too expensive to splurge on</h2>
+
+<p>The most obvious problem with distributed consensus is that it’s inherently slow. A typical consensus operation goes as follows:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>                                  CLIENT
+                                    |  ʌ
+                                (1) |  | (4)
+                                    v  |
+                                   LEADER
+                               [node1, Oregon]
+                                 /  ʌ    \
+                          (2)  /  / (3)    \ (5)
+                             /  /            \
+                           v  /                v
+                        FOLLOWER            FOLLOWER
+                   [node2, California]  [node3, Virginia]
+                                         (responds later)
+</code></pre></div></div>
+
+<p>A client sends a request to the leader. In turn, the leader must talk to a majority of nodes (including itself), i.e. in the picture it would have to wait for one of the followers (for simplicity we assume that node three is always last). In simple math, assuming that actual message processing takes no time, we get</p>
+
+<p><code class="highlighter-rouge">commit_latency = round_trip(client, leader) + round_trip(leader, follower)</code></p>
+
+<p>This internal coordination is expensive, and while it’s unavoidable, we can see that the price tag depends heavily on the location of the client. For example, with a client in Oregon, we have roughly zero latency from the client to the leader, and ~30ms round-trip between the leader and the follower in Virginia, for a total commit latency of about 30ms. That doesn’t sound so bad, but let’s look at a client on the east coast instead – it would presumably be close to our Virginia data center, but that doesn’t matter – the leader is in Oregon, and we pay perhaps an 80ms round trip to it, plus the same 30ms as before, adding up to a hefty 110ms.</p>
+
+<p>This goes to show that once you have consensus, you will do all you can to reduce the time you wait for those transcontinental (or even transmundial) TCP packets. For example, you could ask yourself why in that last example the client couldn’t talk directly to the node in Virginia.</p>
+
+<p>There is a relatively recent consensus protocol called EPaxos which allows this<sup>[2]</sup>, though we’ll save it for another blog post. Today, we’re going to deal with a more modest question:</p>
+
+<h2 id="can-we-make-reads-cheaper">Can we make reads cheaper?</h2>
+
+<p>Read operations may seem innocuous at first. They get served from the leader because that replica is the only one that can guarantee that it’s not reading stale data (since it decides when write operations commit), but read operations don’t have to go through consensus themselves. This means that for our example, we shave 30ms of the commit latency if we only read data. However, reads are still expensive when you’re far away from the leader. It seems silly that the client in Virginia can’t read from its local node; sure would be nice to do better, right? And you can! (At least in the literature.)</p>
+
+<p>The idea is simple:</p>
+
+<blockquote>
+
+  <p>By letting the consensus group agree that commands must be committed by a special majority of the nodes as opposed to any majority, the nodes in that special majority can be sure to be informed about the latest state of the system.
+For example, in the above picture, we could set things up so that all nodes agree that nodes one and two are to be included in any majority when committing commands (regardless of who the leader is), and then these replicas could serve reads which are consistent with the consensus log. The resulting algorithm is investigated (in higher generality) in <a href="https://www.cs.cmu.edu/~dga/papers/leases-socc2014.pdf">Paxos Quorum Leases: Fast Reads Without Sacrificing Writes</a>.</p>
+</blockquote>
+
+<p>In a simpler world, modulo the usual implementation headaches, that could be the end of the story – but there’s an additional bit of complexity hidden here: the fact that CockroachDB is not a simple replicated log, but a full-fledged MVCC database. This means that the key-value pairs we store have a logical timestamp attached to them, and the one invariant that we must uphold is the following:</p>
+
+<blockquote>
+  <p>If a value was ever read at some timestamp, it can only be mutated at higher timestamps.</p>
+</blockquote>
+
+<p>That makes perfect sense if you think about it – if you read a certain value at some timestamp, then I should not be able to perform a write that changes the value you already observed.</p>
+
+<p>On the leader, this is achieved by keeping an in-memory timestamp cache – a data structure which given a key and a timestamp will tell you whether the key was read at a higher timestamp previously. This structure must be consulted before proposing a write to consensus to guard us against the scenario described above – if there was such a read, we can’t perform the write.</p>
+
+<p>If local reads were served at another replica, naively the leader would have to be notified about that synchronously (in order to write to the timestamp cache) before returning the result of the read to the client – the very thing we wanted to avoid! Or, somewhat better, we could let reads remain cheap for the most part and shift complexity onto writes, requiring them to contact the special majority before proposing to confirm that writing at this timestamp is still possible, and prompting the special majority to not serve reads with conflicting timestamps (at least until they see our command pop out of the consensus protocol).</p>
+
+<p>Another (much more complicated) option is to incorporate that feature at the consensus level by allowing replicas to reject commands before the commit. In that scenario, roughly the following would occur:</p>
+
+<ol>
+  <li>Follower 1 serves a local read at timestamp, say, <code class="highlighter-rouge">ts=15</code>.</li>
+  <li>A client asks the leader to write that same key at timestamp <code class="highlighter-rouge">ts=9</code>.</li>
+  <li>The leader proposes a corresponding command to consensus.</li>
+  <li>The consensus algorithm on the leader tries to replicate this command to a majority of followers (including the special majority).</li>
+  <li>Each follower checks the command for timestamp cache violations. Some followers may acknowledge the proposal, but on Follower 1, it is rejected due to already having served a read for <code class="highlighter-rouge">ts=15</code> prior to the write at <code class="highlighter-rouge">ts=9</code>.</li>
+  <li>The leader, upon receiving the rejection, informs the client and cancels replication of the command suitably (either by turning it into a no-op or by unregistering it completely, depending on what’s possible).</li>
+</ol>
+
+<p>To the best of my knowledge, such an addition has not been considered for any consensus protocol (and in particular not for the one of most interest to us, Raft). Allowing individual replicas to reject certain commands ad-hoc (i.e. basing their decision on auxiliary unreplicated state) must be considered very carefully and adds considerable complexity (in particular when leadership changes as these commands are in flight).</p>
+
+<p>Performing that work is likely a small research paper and a bunch of implementation, but in contrast to many other more complicated endeavor, it seems within reach (and with it, serving local reads from some replicas).</p>
+
+<h2 id="conclusion">Conclusion</h2>
+
+<p>Our usage of consensus algorithms in CockroachDB is fairly standard and covers all the basic needs – but taking a step up is something we’ll be working on in the future. While the likely next step is serving reads from (some) followers, techniques which save round-trips on writes are also appealing, but those go extremely deep down the rabbit hole (and have new, much deeper challenges with respect to serving local reads). As usual, distributed consensus is hard. And if that’s just your cup of tea, <a href="https://www.cockroachlabs.com/careers/">you could have that tea every day</a>.</p>
+
+<p>[1] Even if the client attempts to talk to the master node, the node it talks to may not be the actual master (though it may think it is), and so commands which have already committed and influenced the outcome of our read may not yet have been executed on the node we’re reading from yet – this violates linearizability on a single register.</p>
+
+<p>[2] <a href="https://www.cs.cmu.edu/~dga/papers/epaxos-sosp2013.pdf">Egalitarian Paxos (There Is More Consensus In Egalitarian
+Parliaments)</a></p>
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+      <li>
+        <h3>
+          <a href="gmail-filter-inbox-zero.html">
+            Using Gmail like Inbox (Zero)
+            <small>29 Dec 2018</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="single-decree-paxos-tla-compare-and-swap.html">
+            Paxos on Steroids and a Crash Course in TLA+
+            <small>07 Apr 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="if-its-not-paxos-its-probably-wrong-gryadka.html">
+            Gryadka is not Paxos, so it's probably wrong (RETRACTED)
+            <small>23 Mar 2017</small>
+          </a>
+        </h3>
+      </li>
+    
+  </ul>
+</div>
+
+
+      
+  <!-- Add Disqus comments. -->
+  <div id="disqus_thread"></div>
+  <script type="text/javascript">
+    var disqus_shortname = 'tschottdorf'; // required: replace example with your forum shortname
+    (function() {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+
+
+
+      <div class="footer">
+        <p>
+          &copy; 2018. All rights reserved.
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>
