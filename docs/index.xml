@@ -19,6 +19,15 @@ For obvious reasons - the Gas and Climate sandwich crisis - I&amp;rsquo;ve been 
     </item>
     
     <item>
+      <title>I knew about the sharp nail and it got me anyway</title>
+      <link>https://tbg.github.io/posts/incidental-complexity/</link>
+      <pubDate>Fri, 13 Jan 2023 08:02:40 +0100</pubDate>
+      
+      <guid>https://tbg.github.io/posts/incidental-complexity/</guid>
+      <description>I spent the entirety of last morning dealing with the fallout of incorrectly handling a piece of largely unnecessary complexity in the CockroachDB code base. I was familiar with the complexity; I was around when the complexity was introduced many years ago; I field questions (by others working on CockroachDB) about it a few times a year; I was, yesterday morning, working specifically in an area touched by the complexity and in fact had just improved its code documentation.</description>
+    </item>
+    
+    <item>
       <title>Hello World Again</title>
       <link>https://tbg.github.io/posts/hello-world-again/</link>
       <pubDate>Fri, 06 Jan 2023 15:33:59 +0100</pubDate>
