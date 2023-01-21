@@ -1,6 +1,6 @@
 ---
 title: "Reading on the Energy Transition"
-date: 2023-01-13T22:22:28+01:00
+date: 2023-01-21T22:22:28+01:00
 ---
 
 I was born a little over a year after the Chernobyl disaster and I grew up
