@@ -1,4 +1,6 @@
-<!DOCTYPE html>
+<!doctype html>
+
+
 
 
 
@@ -32,8 +34,8 @@
 
 
 <html
-  class="not-ready text-sm lg:text-base"
-  style="--bg: #faf6f1"
+  class="not-ready lg:text-base"
+  style="--bg: #faf8f1"
   lang="en-us"
 >
   <head>
@@ -49,14 +51,14 @@
 
   
   <meta name="theme-color" />
+
+  
+  
   
   <meta name="description" content="I was born a little over a year after the Chernobyl disaster and I grew up around stickers like these.
 Nuclear energy is not very popular in Germany. It&rsquo;s just normal to say it&rsquo;s obviously bad and move on. Chernobyl, Fukushima, giant piles of nuclear waste polluting our planet for tens of thousand of years, what&rsquo;s not to love.
 For obvious reasons - the Gas and Climate sandwich crisis - I&rsquo;ve been trying to answer some obvious questions for myself: is this renewable transition actually realistic or are we just lying to ourselves?" />
-  <meta
-    name="author"
-    content=""
-  />
+  <meta name="author" content="Tobias Grieger" />
   
 
   
@@ -91,13 +93,17 @@ For obvious reasons - the Gas and Climate sandwich crisis - I&rsquo;ve been tryi
   
   <link rel="preload" as="image" href="https://tbg.github.io/rss.svg" />
   
+  
+
+  
+  
 
   
   <link rel="icon" href="https://tbg.github.io/favicon.ico" />
   <link rel="apple-touch-icon" href="https://tbg.github.io/apple-touch-icon.png" />
 
   
-  <meta name="generator" content="Hugo 0.109.0">
+  <meta name="generator" content="Hugo 0.118.2">
 
   
   
@@ -106,20 +112,6 @@ For obvious reasons - the Gas and Climate sandwich crisis - I&rsquo;ve been tryi
   
   
   
-  
-  
-  
-  
-  
-  <meta property="og:title" content="Reading on the Energy Transition" />
-<meta property="og:description" content="I was born a little over a year after the Chernobyl disaster and I grew up around stickers like these.
-Nuclear energy is not very popular in Germany. It&rsquo;s just normal to say it&rsquo;s obviously bad and move on. Chernobyl, Fukushima, giant piles of nuclear waste polluting our planet for tens of thousand of years, what&rsquo;s not to love.
-For obvious reasons - the Gas and Climate sandwich crisis - I&rsquo;ve been trying to answer some obvious questions for myself: is this renewable transition actually realistic or are we just lying to ourselves?" />
-<meta property="og:type" content="article" />
-<meta property="og:url" content="https://tbg.github.io/posts/reading-on-energy/" /><meta property="article:section" content="posts" />
-<meta property="article:published_time" content="2023-01-21T22:22:28+01:00" />
-<meta property="article:modified_time" content="2023-01-21T22:22:28+01:00" />
-
   
   <meta itemprop="name" content="Reading on the Energy Transition">
 <meta itemprop="description" content="I was born a little over a year after the Chernobyl disaster and I grew up around stickers like these.
@@ -140,21 +132,25 @@ For obvious reasons - the Gas and Climate sandwich crisis - I&rsquo;ve been tryi
 </head>
 
   <body class="text-black duration-200 ease-out dark:text-white">
-    <header class="mx-auto flex h-[5rem] max-w-3xl px-8 lg:justify-center">
+    <header class="mx-auto flex h-[4.5rem] max-w-3xl px-8 lg:justify-center">
   <div class="relative z-50 mr-auto flex items-center">
     <a
-      class="-translate-x-[1px] -translate-y-0.5 text-3xl font-bold"
+      class="-translate-x-[1px] -translate-y-[1px] text-2xl font-semibold"
       href="https://tbg.github.io/"
       >Tobias Grieger</a
     >
-    <a
-      class="btn-dark ml-6 h-6 w-6 shrink-0 cursor-pointer [background:url(./theme.png)_left_center/_auto_theme('spacing.6')_no-repeat] [transition:_background-position_0.4s_steps(5)] dark:[background-position:right]"
-    ></a>
+    <div
+      class="btn-dark text-[0] ml-4 h-6 w-6 shrink-0 cursor-pointer [background:url(./theme.png)_left_center/_auto_theme('spacing.6')_no-repeat] [transition:_background-position_0.4s_steps(5)] dark:[background-position:right]"
+      role="button"
+      aria-label="Dark"
+    ></div>
   </div>
 
-  <a
-    class="btn-menu relative z-50 -mr-8 flex h-[5rem] w-[5rem] shrink-0 cursor-pointer flex-col items-center justify-center gap-2.5 lg:hidden"
-  ></a>
+  <div
+    class="btn-menu relative z-50 -mr-8 flex h-[4.5rem] w-[5rem] shrink-0 cursor-pointer flex-col items-center justify-center gap-2.5 lg:hidden"
+    role="button"
+    aria-label="Menu"
+  ></div>
 
   
   <script>
@@ -172,7 +168,7 @@ For obvious reasons - the Gas and Climate sandwich crisis - I&rsquo;ve been tryi
 
     
     const metaTheme = document.querySelector('meta[name="theme-color"]');
-    const lightBg = `"#faf6f1"`.replace(/"/g, '');
+    const lightBg = '#faf8f1'.replace(/"/g, '');
     const setDark = (isDark) => {
       metaTheme.setAttribute('content', isDark ? '#000' : lightBg);
       htmlClass[isDark ? 'add' : 'remove']('dark');
@@ -224,29 +220,38 @@ For obvious reasons - the Gas and Climate sandwich crisis - I&rsquo;ve been tryi
 
     
     <nav
-      class="mt-12 flex justify-center space-x-10 dark:invert lg:mt-0 lg:ml-12 lg:items-center lg:space-x-6"
+      class="mt-12 flex justify-center space-x-10 dark:invert lg:ml-12 lg:mt-0 lg:items-center lg:space-x-6"
     >
       
       <a
-        class="h-8 w-8 [background:var(--url)_center_center/cover_no-repeat] lg:h-6 lg:w-6"
+        class="h-8 w-8 text-[0] [background:var(--url)_center_center/cover_no-repeat] lg:h-6 lg:w-6"
         style="--url: url(./twitter.svg)"
-        href=" https://twitter.com/tbgrieger "
+        href="https://twitter.com/tbgrieger"
         target="_blank"
-      ></a>
+        rel="me"
+      >
+        twitter
+      </a>
       
       <a
-        class="h-8 w-8 [background:var(--url)_center_center/cover_no-repeat] lg:h-6 lg:w-6"
+        class="h-8 w-8 text-[0] [background:var(--url)_center_center/cover_no-repeat] lg:h-6 lg:w-6"
         style="--url: url(./github.svg)"
-        href=" https://github.com/tbg "
+        href="https://github.com/tbg"
         target="_blank"
-      ></a>
+        rel="me"
+      >
+        github
+      </a>
       
       <a
-        class="h-8 w-8 [background:var(--url)_center_center/cover_no-repeat] lg:h-6 lg:w-6"
+        class="h-8 w-8 text-[0] [background:var(--url)_center_center/cover_no-repeat] lg:h-6 lg:w-6"
         style="--url: url(./rss.svg)"
-        href=" https://tbg.github.io/index.xml "
+        href="https://tbg.github.io/index.xml"
         target="_blank"
-      ></a>
+        rel="alternate"
+      >
+        rss
+      </a>
       
     </nav>
     
@@ -255,18 +260,20 @@ For obvious reasons - the Gas and Climate sandwich crisis - I&rsquo;ve been tryi
 
 
     <main
-      class="prose prose-neutral relative mx-auto min-h-[calc(100%-10rem)] max-w-3xl px-8 pt-20 pb-32 dark:prose-invert"
+      class="prose prose-neutral relative mx-auto min-h-[calc(100%-9rem)] max-w-3xl px-8 pb-16 pt-12 dark:prose-invert"
     >
       
 
 <article>
-  <header class="mb-20">
+  <header class="mb-16">
     <h1 class="!my-0 pb-2.5">Reading on the Energy Transition</h1>
 
     
-    <div class="text-sm opacity-60">
+    <div class="text-sm antialiased opacity-60">
       
       <time>Jan 21, 2023</time>
+      
+      
       
       
     </div>
@@ -466,24 +473,27 @@ renewables&rdquo;.</li>
   
   
   
-  <nav
-    class="mt-24 flex rounded-lg bg-black/[3%] p-1.5 text-lg dark:bg-white/[8%]"
-  >
+  
+  <nav class="mt-24 flex rounded-lg bg-black/[3%] text-lg dark:bg-white/[8%]">
     
     <a
-      class="flex w-1/2 items-center rounded-md p-6 pr-3 no-underline hover:bg-black/[2%]"
+      class="flex w-1/2 items-center rounded-l-md p-6 pr-3 font-semibold no-underline hover:bg-black/[2%] dark:hover:bg-white/[3%]"
       href="https://tbg.github.io/posts/solow-sustainability/"
       ><span class="mr-1.5">←</span><span>Solow on Sustainability in &#39;91</span></a
     >
     
     
     <a
-      class="ml-auto flex w-1/2 items-center justify-end rounded-md p-6 pl-3 no-underline hover:bg-black/[2%]"
+      class="ml-auto flex w-1/2 items-center justify-end rounded-r-md p-6 pl-3 font-semibold no-underline hover:bg-black/[2%] dark:hover:bg-white/[3%]"
       href="https://tbg.github.io/posts/incidental-complexity/"
       ><span>I knew about the sharp nail and it got me anyway</span><span class="ml-1.5">→</span></a
     >
     
   </nav>
+  
+  
+
+  
   
 
   
@@ -494,7 +504,7 @@ renewables&rdquo;.</li>
     </main>
 
     <footer
-  class="opaco mx-auto flex h-[5rem] max-w-3xl items-center px-8 text-[0.9em] opacity-60"
+  class="opaco mx-auto flex h-[4.5rem] max-w-3xl items-center px-8 text-[0.9em] opacity-60"
 >
   <div class="mr-auto">
     &copy; 2023
@@ -508,7 +518,7 @@ renewables&rdquo;.</li>
     href="https://github.com/nanxiaobei/hugo-paper"
     rel="noopener"
     target="_blank"
-    >▷ Paper 6</a
+    >✎ Paper</a
   >
 </footer>
 
